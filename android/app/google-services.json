@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "611057034157",
+    "project_id": "dulni-d2dd1",
+    "storage_bucket": "dulni-d2dd1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:611057034157:android:97f37e3f0fc702b9f1b724",
+        "android_client_info": {
+          "package_name": "com.example.dulni_project"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAZ2Gn12b_ISkvvyElSwHqbWPO1s8eV--c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
