@@ -1,12 +1,27 @@
 import 'package:flutter/material.dart';
 
+import 'profile_page.dart';
+
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('دلني')),
+      appBar: AppBar(
+        title: const Text('دلني'),
+        actions: [
+          IconButton(
+            tooltip: 'الملف الشخصي',
+            icon: const Icon(Icons.person_outline),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const ProfilePage(),
+              ),
+            ),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Center(
           child: Padding(
@@ -16,9 +31,11 @@ class HomePage extends StatelessWidget {
               children: [
                 const Icon(Icons.explore_outlined, size: 72),
                 const SizedBox(height: 16),
-                Text('أهلًا بك في دلني',
-                    style: Theme.of(context).textTheme.headlineMedium,
-                    textAlign: TextAlign.center),
+                Text(
+                  'أهلًا بك في دلني',
+                  style: Theme.of(context).textTheme.headlineMedium,
+                  textAlign: TextAlign.center,
+                ),
                 const SizedBox(height: 8),
                 const Text(
                   'هذه صفحة رئيسية مؤقتة، وسيتم ربطها بواجهة الخريطة والتنقّل ضمن Sprint 1.',
