@@ -200,7 +200,7 @@ class _ProfilePageState extends State<ProfilePage> {
       debugPrint('Account deletion failed: $error');
       debugPrintStack(stackTrace: stackTrace);
       if (!mounted) return;
-      _showMessage('تعذر إكمال حذف الحساب. راجع رسالة الخطأ في Debug Console.');
+      _showMessage('تعذر حذف الحساب. يرجى المحاولة مرة أخرى.');
     } finally {
       if (mounted) setState(() => _deletingAccount = false);
     }
@@ -347,7 +347,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                     decoration: const InputDecoration(
                                       labelText: 'البريد الإلكتروني',
                                       prefixIcon: Icon(Icons.email_outlined),
-                                      helperText: 'لا يمكن تغيير البريد الإلكتروني من هذه الصفحة.',
+                                      helperText: 'لا يمكن تغيير البريد الإلكتروني.',
                                     ),
                                   ),
                                   const SizedBox(height: 16),
