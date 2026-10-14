@@ -523,7 +523,7 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            'سيتم حذف حسابك وبيانات ملفك الشخصي نهائيًا. أدخل كلمة المرور لتأكيد هويتك.',
+            'سيتم حذف حسابك وبيانات ملفك الشخصي نهائيًا. يرجى إدخال كلمة المرور لتأكيد هويتك.',
           ),
           const SizedBox(height: 16),
           TextField(
