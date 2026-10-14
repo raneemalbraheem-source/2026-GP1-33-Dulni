@@ -67,14 +67,17 @@ class _SignupPageState extends State<SignupPage> {
       }
       _showMessage(message);
     } catch (_) {
-      _showMessage('تعذر حفظ بيانات الحساب. يرجى التحقق من الاتصال وإعدادات الخدمة ثم المحاولة مجددًا.');
+      _showMessage(
+        'تعذر حفظ بيانات الحساب. يرجى التحقق من الاتصال وإعدادات الخدمة ثم المحاولة مجددًا.',
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -95,13 +98,17 @@ class _SignupPageState extends State<SignupPage> {
                   children: [
                     const Icon(Icons.person_add_alt_1_outlined, size: 72),
                     const SizedBox(height: 16),
-                    Text('رحلة أسهل مع دلني',
-                        style: theme.textTheme.headlineMedium,
-                        textAlign: TextAlign.center),
+                    Text(
+                      'رحلة أسهل مع دلني',
+                      style: theme.textTheme.headlineMedium,
+                      textAlign: TextAlign.center,
+                    ),
                     const SizedBox(height: 8),
-                    Text('أنشئ حسابًا لتخصيص تجربة الاستخدام.',
-                        style: theme.textTheme.bodyLarge,
-                        textAlign: TextAlign.center),
+                    Text(
+                      'أنشئ حسابًا لتخصيص تجربة الاستخدام.',
+                      style: theme.textTheme.bodyLarge,
+                      textAlign: TextAlign.center,
+                    ),
                     const SizedBox(height: 28),
                     TextFormField(
                       controller: _nameController,
@@ -112,9 +119,9 @@ class _SignupPageState extends State<SignupPage> {
                       ),
                       validator: (v) => (v == null || v.trim().isEmpty)
                           ? 'يرجى إدخال الاسم الكامل.'
-                          : v!.trim().length < 2 || v.trim().length > 20
-                              ? 'يجب أن يتراوح الاسم بين حرفين و20 حرفًا.'
-                              : null,
+                          : v.trim().length < 2 || v.trim().length > 20
+                          ? 'يجب أن يتراوح الاسم بين حرفين و20 حرفًا.'
+                          : null,
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
@@ -127,8 +134,11 @@ class _SignupPageState extends State<SignupPage> {
                       ),
                       validator: (v) {
                         final value = v?.trim() ?? '';
-                        if (value.isEmpty) return 'يرجى إدخال البريد الإلكتروني.';
-                        if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value)) {
+                        if (value.isEmpty) {
+                          return 'يرجى إدخال البريد الإلكتروني.';
+                        }
+                        if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                            .hasMatch(value)) {
                           return 'صيغة البريد الإلكتروني غير صحيحة. يرجى إدخال بريد صالح.';
                         }
                         return null;
@@ -143,18 +153,37 @@ class _SignupPageState extends State<SignupPage> {
                         helperText: '8 أحرف على الأقل، مع حرف كبير وصغير ورقم ورمز خاص.',
                         prefixIcon: const Icon(Icons.lock_outline),
                         suffixIcon: IconButton(
-                          tooltip: _hidePassword ? 'إظهار كلمة المرور' : 'إخفاء كلمة المرور',
-                          onPressed: () => setState(() => _hidePassword = !_hidePassword),
-                          icon: Icon(_hidePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                          tooltip: _hidePassword
+                              ? 'إظهار كلمة المرور'
+                              : 'إخفاء كلمة المرور',
+                          onPressed: () =>
+                              setState(() => _hidePassword = !_hidePassword),
+                          icon: Icon(
+                            _hidePassword
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                          ),
                         ),
                       ),
                       validator: (v) {
-                        if (v == null || v.isEmpty) return 'يرجى إدخال كلمة المرور.';
-                        if (v.length < 8) return 'يجب ألا تقل كلمة المرور عن 8 أحرف.';
-                        if (!RegExp(r'[A-Z]').hasMatch(v)) return 'يلزم وجود حرف إنجليزي كبير واحد على الأقل.';
-                        if (!RegExp(r'[a-z]').hasMatch(v)) return 'يلزم وجود حرف إنجليزي صغير واحد على الأقل.';
-                        if (!RegExp(r'\d').hasMatch(v)) return 'يلزم وجود رقم واحد على الأقل.';
-                        if (!RegExp(r'[^A-Za-z0-9]').hasMatch(v)) return 'يلزم وجود رمز خاص واحد على الأقل.';
+                        if (v == null || v.isEmpty) {
+                          return 'يرجى إدخال كلمة المرور.';
+                        }
+                        if (v.length < 8) {
+                          return 'يجب ألا تقل كلمة المرور عن 8 أحرف.';
+                        }
+                        if (!RegExp(r'[A-Z]').hasMatch(v)) {
+                          return 'يلزم وجود حرف إنجليزي كبير واحد على الأقل.';
+                        }
+                        if (!RegExp(r'[a-z]').hasMatch(v)) {
+                          return 'يلزم وجود حرف إنجليزي صغير واحد على الأقل.';
+                        }
+                        if (!RegExp(r'\d').hasMatch(v)) {
+                          return 'يلزم وجود رقم واحد على الأقل.';
+                        }
+                        if (!RegExp(r'[^A-Za-z0-9]').hasMatch(v)) {
+                          return 'يلزم وجود رمز خاص واحد على الأقل.';
+                        }
                         return null;
                       },
                     ),
@@ -166,14 +195,25 @@ class _SignupPageState extends State<SignupPage> {
                         labelText: 'تأكيد كلمة المرور',
                         prefixIcon: const Icon(Icons.lock_reset_outlined),
                         suffixIcon: IconButton(
-                          tooltip: _hideConfirm ? 'إظهار كلمة المرور' : 'إخفاء كلمة المرور',
-                          onPressed: () => setState(() => _hideConfirm = !_hideConfirm),
-                          icon: Icon(_hideConfirm ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                          tooltip: _hideConfirm
+                              ? 'إظهار كلمة المرور'
+                              : 'إخفاء كلمة المرور',
+                          onPressed: () =>
+                              setState(() => _hideConfirm = !_hideConfirm),
+                          icon: Icon(
+                            _hideConfirm
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                          ),
                         ),
                       ),
                       validator: (v) {
-                        if (v == null || v.isEmpty) return 'يرجى تأكيد كلمة المرور.';
-                        if (v != _passwordController.text) return 'كلمتا المرور غير متطابقتين.';
+                        if (v == null || v.isEmpty) {
+                          return 'يرجى تأكيد كلمة المرور.';
+                        }
+                        if (v != _passwordController.text) {
+                          return 'كلمتا المرور غير متطابقتين.';
+                        }
                         return null;
                       },
                     ),
@@ -181,8 +221,11 @@ class _SignupPageState extends State<SignupPage> {
                     ElevatedButton(
                       onPressed: _loading ? null : _createAccount,
                       child: _loading
-                          ? const SizedBox(height: 24, width: 24,
-                              child: CircularProgressIndicator(strokeWidth: 2))
+                          ? const SizedBox(
+                              height: 24,
+                              width: 24,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
                           : const Text('إنشاء الحساب'),
                     ),
                     const SizedBox(height: 16),
@@ -193,7 +236,9 @@ class _SignupPageState extends State<SignupPage> {
                         TextButton(
                           onPressed: () => Navigator.pushReplacement(
                             context,
-                            MaterialPageRoute(builder: (_) => const LoginPage()),
+                            MaterialPageRoute(
+                              builder: (_) => const LoginPage(),
+                            ),
                           ),
                           child: const Text('تسجيل الدخول'),
                         ),

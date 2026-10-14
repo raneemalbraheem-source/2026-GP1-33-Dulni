@@ -3,6 +3,9 @@
         android:label="dulni_project"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <meta-data
+        android:name="com.google.android.geo.API_KEY"
+        android:value="AIzaSyDbR0749RMXFBdJsqa0Ow6OFAveZACeo_k" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
