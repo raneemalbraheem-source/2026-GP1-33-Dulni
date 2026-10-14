@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../app_theme.dart';
 import 'login_page.dart';
 import 'signup_page.dart';
@@ -45,12 +46,14 @@ class _WelcomePageState extends State<WelcomePage> {
                               decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: colors.outlineVariant),
+                                border: Border.all(
+                                  color: colors.outlineVariant,
+                                ),
                               ),
                               child: Image.asset(
                                 'assets/images/dulni_logo.jpeg',
                                 fit: BoxFit.contain,
-                                errorBuilder: (_, __, ___) => const Icon(
+                                errorBuilder: (_, _, _) => const Icon(
                                   Icons.explore_outlined,
                                   size: 88,
                                   color: DulniColors.navy,
@@ -74,7 +77,7 @@ class _WelcomePageState extends State<WelcomePage> {
                         const SizedBox(height: 16),
                         Text(
                           'ندلّك لوجهتك بالعربي، بدون تيرن رايت وتيرن ليفت! '
-                        'وننبهك للعوائق اللي في طريقك ونتأكد إنك توصل بأمان.',
+                          'وننبهك للعوائق اللي في طريقك ونتأكد إنك توصل بأمان.',
                           style: theme.textTheme.bodyLarge?.copyWith(
                             color: colors.onSurfaceVariant,
                           ),

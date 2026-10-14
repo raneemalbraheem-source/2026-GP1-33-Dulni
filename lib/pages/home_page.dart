@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'profile_page.dart';
 
@@ -22,27 +23,11 @@ class HomePage extends StatelessWidget {
           ),
         ],
       ),
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.explore_outlined, size: 72),
-                const SizedBox(height: 16),
-                Text(
-                  'أهلًا بك في دلني',
-                  style: Theme.of(context).textTheme.headlineMedium,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'هذه صفحة رئيسية مؤقتة، وسيتم ربطها بواجهة الخريطة والتنقّل ضمن Sprint 1.',
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
+      body: const SafeArea(
+        child: GoogleMap(
+          initialCameraPosition: CameraPosition(
+            target: LatLng(24.7136, 46.6753),
+            zoom: 14,
           ),
         ),
       ),
