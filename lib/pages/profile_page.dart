@@ -195,7 +195,7 @@ class _ProfilePageState extends State<ProfilePage> {
       debugPrint('Account deletion failed: ${error.code}: ${error.message}');
       debugPrintStack(stackTrace: stackTrace);
       if (!mounted) return;
-      _showMessage('${_firebaseMessage(error)} (${error.code})');
+      _showMessage(_firebaseMessage(error));
     } catch (error, stackTrace) {
       debugPrint('Account deletion failed: $error');
       debugPrintStack(stackTrace: stackTrace);
