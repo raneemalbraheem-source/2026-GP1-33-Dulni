@@ -2,7 +2,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
-import 'home_page.dart';
 import 'login_page.dart';
 
 class SignupPage extends StatefulWidget {
@@ -42,10 +41,17 @@ class _SignupPageState extends State<SignupPage> {
         password: _passwordController.text,
       );
       if (!mounted) return;
+      // تسجيل الخروج لأن Firebase يسجّل المستخدم تلقائيًا بعد إنشاء الحساب.
+      await FirebaseAuth.instance.signOut();
+
+      if (!mounted) return;
+
       Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const HomePage()),
-        (_) => false,
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) => const LoginPage(),
+          ),
+          (_) => false,
       );
     } on FirebaseAuthException catch (e) {
       String message;
