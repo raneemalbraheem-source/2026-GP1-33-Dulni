@@ -23,7 +23,7 @@ class PermissionService {
     return false;
   }
 
-  static Future<bool> requestMicrophonePermission(
+  /* static Future<bool> requestMicrophonePermission(
       BuildContext context) async {
     final status = await Permission.microphone.request();
 
@@ -42,5 +42,5 @@ class PermissionService {
     }
 
     return false;
-  }
+  }*/
 }

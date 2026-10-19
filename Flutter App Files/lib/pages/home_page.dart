@@ -33,7 +33,7 @@ void initState() {
 Future<void> _requestPermissions() async {
   await PermissionService.requestLocationPermission(context);
 
-  await PermissionService.requestMicrophonePermission(context);
+  // await PermissionService.requestMicrophonePermission(context);
 }
 
 Future<void> searchPlaces(String input) async {
