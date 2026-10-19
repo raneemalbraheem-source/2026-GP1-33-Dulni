@@ -37,7 +37,6 @@ class AuthService {
     final now = FieldValue.serverTimestamp();
     await _users.doc(uid).set({
       'fullName': fullName.trim(),
-      'createdAt': now,
       'updatedAt': now,
       'accountStatus': 'active',
       'voicePersona': 'default',

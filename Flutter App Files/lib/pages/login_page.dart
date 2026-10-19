@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/auth_service.dart';
 import 'home_page.dart';
@@ -18,6 +19,7 @@ class _LoginPageState extends State<LoginPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _authService = AuthService();
+  bool _rememberMe = false;
   bool _hidePassword = true;
   bool _loading = false;
 
@@ -29,27 +31,40 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _login() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => _loading = true);
-    try {
-      await _authService.signIn(
-        email: _emailController.text,
-        password: _passwordController.text,
-      );
-      if (!mounted) return;
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const HomePage()),
-        (_) => false,
-      );
-    } on FirebaseAuthException catch (e) {
-      _showMessage(_authError(e.code));
-    } catch (_) {
-      _showMessage('تعذر تسجيل الدخول. يرجى التحقق من الاتصال والمحاولة مجددًا.');
-    } finally {
-      if (mounted) setState(() => _loading = false);
+  if (!_formKey.currentState!.validate()) return;
+
+  setState(() => _loading = true);
+
+  try {
+    await _authService.signIn(
+      email: _emailController.text,
+      password: _passwordController.text,
+    );
+
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool('rememberMe', _rememberMe);
+
+    if (!mounted) return;
+
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => const HomePage(),
+      ),
+      (_) => false,
+    );
+  } on FirebaseAuthException catch (e) {
+    _showMessage(_authError(e.code));
+  } catch (_) {
+    _showMessage(
+      'تعذر تسجيل الدخول. يرجى التحقق من الاتصال والمحاولة مجددًا.',
+    );
+  } finally {
+    if (mounted) {
+      setState(() => _loading = false);
     }
   }
+}
 
   String _authError(String code) {
     switch (code) {
@@ -139,6 +154,20 @@ class _LoginPageState extends State<LoginPage> {
                           ? 'يرجى إدخال كلمة المرور.'
                           : null,
                     ),
+                    CheckboxListTile(
+                    value: _rememberMe,
+                    onChanged: _loading
+                        ? null
+                        : (value) {
+                            setState(() {
+                              _rememberMe = value ?? false;
+                            });
+                          },
+                    title: const Text('تذكرني'),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
                     Align(
                       alignment: AlignmentDirectional.centerEnd,
                       child: TextButton(

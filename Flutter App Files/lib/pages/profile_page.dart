@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import 'login_page.dart';
 import 'welcome_page.dart';
+import '../widgets/app_bottom_navigation.dart';
+import 'home_page.dart';
+import '../services/logout_helper.dart';
+
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -304,7 +308,12 @@ class _ProfilePageState extends State<ProfilePage> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(title: const Text('الملف الشخصي')),
+      //appBar: AppBar(title: const Text('الملف الشخصي')),
+        appBar: AppBar(
+        automaticallyImplyLeading: false,
+        title: const Text('الملف الشخصي'),
+        ),
+
         body: SafeArea(
           child: _loadingProfile
               ? const Center(child: CircularProgressIndicator())
@@ -479,6 +488,25 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 ),
         ),
+        bottomNavigationBar: AppBottomNavigation(
+  currentIndex: 3,
+  onTap: (index) {
+    if (index == 1) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => HomePage(),
+        ),
+      );
+    }
+    
+    
+   
+    if (index == 0) {
+      showLogoutDialog(context);
+    }
+  },
+),
       ),
     );
   }
