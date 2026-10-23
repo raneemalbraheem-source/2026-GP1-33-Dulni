@@ -5,11 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 
-import '../services/geoapify_config.dart';
+import '../services/ors_service.dart';
 import '../services/logout_helper.dart';
 import '../services/permission_service.dart';
 import '../widgets/app_bottom_navigation.dart';
 import 'profile_page.dart';
+import 'package:geolocator/geolocator.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -19,15 +20,69 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  bool _isSelectingPlace = false;
   final TextEditingController _searchController = TextEditingController();
-
+final String geoapifyApiKey = 'd305829611ef40c487716573e326a0bb';
+final ORSService _orsService = ORSService();
+List<LatLng> _routePoints = [];
+final Set<Polyline> _polylines = {};
   GoogleMapController? _mapController;
   Timer? _searchDebounce;
   int _searchRequestId = 0;
   List<dynamic> _predictions = [];
   String? _searchMessage;
   Map<String, dynamic>? _selectedPlace;
-  bool _isSelectingPlace = false;
+ Future<void> _getAndDisplayRoute(LatLng destination) async {
+    LatLng startLatLng = const LatLng(24.7136, 46.6753);
+
+    try {
+      final points = await _orsService.getPedestrianRoute(startLatLng, destination);
+
+      if (points.isNotEmpty) {
+        setState(() {
+       _isSelectingPlace = false;
+          _routePoints = points;
+          _polylines.clear();
+          _polylines.add(
+            Polyline(
+              polylineId: const PolylineId('pedestrian_route'),
+              points: points,
+              color: Colors.blue,
+              width: 6,
+            ),
+          );
+        });
+
+        // تحريك الكاميرا واحتواء المسار كاملاً ليظهر على الشاشة
+        if (_mapController != null) {
+          LatLngBounds bounds;
+          if (startLatLng.latitude <= destination.latitude && startLatLng.longitude <= destination.longitude) {
+            bounds = LatLngBounds(southwest: startLatLng, northeast: destination);
+          } else if (startLatLng.latitude <= destination.latitude) {
+            bounds = LatLngBounds(
+              southwest: LatLng(startLatLng.latitude, destination.longitude),
+              northeast: LatLng(destination.latitude, startLatLng.longitude),
+            );
+          } else if (startLatLng.longitude <= destination.longitude) {
+            bounds = LatLngBounds(
+              southwest: LatLng(destination.latitude, startLatLng.longitude),
+              northeast: LatLng(startLatLng.latitude, destination.longitude),
+            );
+          } else {
+            bounds = LatLngBounds(southwest: destination, northeast: startLatLng);
+          }
+
+          _mapController!.animateCamera(
+            CameraUpdate.newLatLngBounds(bounds, 70), // حشو 70 بكسل لزيادة وضوح الحدود
+          );
+        }
+
+        print('تم رسم خط مسار المشاة بنجاح!');
+      }
+    } catch (e) {
+      print('خطأ أثناء جلب مسار المشاة: $e');
+    }
+  }
   bool _locationPermissionGranted = false;
 
   @override
@@ -165,7 +220,7 @@ class _HomePageState extends State<HomePage> {
       await mapController.animateCamera(CameraUpdate.newLatLngZoom(target, 16));
 
       if (!mounted) return;
-
+_getAndDisplayRoute(target);
       final detailsUri = Uri.https('api.geoapify.com', '/v2/place-details', {
         'id': placeId,
         'features': 'details',
@@ -315,6 +370,7 @@ class _HomePageState extends State<HomePage> {
                 target: LatLng(24.7136, 46.6753),
                 zoom: 14,
               ),
+              polylines: _polylines,
             ),
             Positioned(
               top: 16,
