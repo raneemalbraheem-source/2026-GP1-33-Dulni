@@ -16,8 +16,8 @@ The goal of Dulni is to improve outdoor mobility and independence for visually i
 - **Authentication:** Firebase Authentication
 - **Map and Location Services:** Google Maps Platform
 - **Version Control:** GitHub
-- AI & Computer Vision Model: YOLO11 Nano (Exported to TFLite)
-- Model Training Environment: Google Colab (T4 GPU)
+- **AI & Computer Vision Model:** YOLO11 Nano (Exported to TFLite)
+- **Model Training Environment:** Google Colab (T4 GPU)
 
 
 ## Project Structure
