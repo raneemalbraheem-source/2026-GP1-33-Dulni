@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/auth_service.dart';
@@ -15,8 +16,10 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  static final RegExp _emailPattern =
-      RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+  static final RegExp _emailPattern = RegExp(
+    r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$",
+  );
+  static final RegExp _englishPrintableCharacters = RegExp(r'[\x21-\x7E]');
 
   final _formKey = GlobalKey<FormState>();
   final _emailFocusNode = FocusNode();
@@ -36,9 +39,13 @@ class _LoginPageState extends State<LoginPage> {
     return value.isNotEmpty && _emailPattern.hasMatch(value);
   }
 
+  bool _isAsciiPassword(String value) =>
+      value.codeUnits.every((unit) => unit >= 0x21 && unit <= 0x7E);
+
   bool get _passwordIsValid {
     final password = _passwordController.text;
-    return password.length >= 8 &&
+    return _isAsciiPassword(password) &&
+        password.length >= 8 &&
         RegExp(r'[A-Z]').hasMatch(password) &&
         RegExp(r'[a-z]').hasMatch(password) &&
         RegExp(r'\d').hasMatch(password) &&
@@ -219,6 +226,11 @@ class _LoginPageState extends State<LoginPage> {
                     TextFormField(
                       focusNode: _emailFocusNode,
                       controller: _emailController,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(
+                          _englishPrintableCharacters,
+                        ),
+                      ],
                       autofillHints: const [AutofillHints.email],
                       textInputAction: TextInputAction.next,
                       onFieldSubmitted: (_) => _passwordFocusNode.requestFocus(),
@@ -249,6 +261,12 @@ class _LoginPageState extends State<LoginPage> {
                     TextFormField(
                       focusNode: _passwordFocusNode,
                       controller: _passwordController,
+                      textDirection: TextDirection.ltr,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(
+                          _englishPrintableCharacters,
+                        ),
+                      ],
                       autofillHints: const [AutofillHints.password],
                       textInputAction: TextInputAction.done,
                       onFieldSubmitted: (_) => _loading ? null : _login(),
@@ -281,6 +299,9 @@ class _LoginPageState extends State<LoginPage> {
                       validator: (value) {
                         if (value == null || value.isEmpty) {
                           return 'أدخل كلمة المرور.';
+                        }
+                        if (!_isAsciiPassword(value)) {
+                          return 'استخدم أحرفًا إنجليزية ورموزًا فقط.';
                         }
                         if (!_passwordIsValid) {
                           return 'أدخل كلمة مرور صالحة.';

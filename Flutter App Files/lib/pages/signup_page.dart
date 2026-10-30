@@ -13,8 +13,10 @@ class SignupPage extends StatefulWidget {
 }
 
 class _SignupPageState extends State<SignupPage> {
-  static final RegExp _emailPattern =
-      RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+  static final RegExp _emailPattern = RegExp(
+    r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$",
+  );
+  static final RegExp _englishPrintableCharacters = RegExp(r'[\x21-\x7E]');
   static final RegExp _namePattern = RegExp(
     r"^[A-Za-z\u0621-\u064A\u066E-\u06D3\u06FA-\u06FC\u064B-\u065F\u0670\u06D6-\u06ED ]+$",
   );
@@ -73,7 +75,12 @@ class _SignupPageState extends State<SignupPage> {
     ];
   }
 
-  bool get _passwordIsValid => _passwordRules.every((rule) => rule.isMet);
+  bool _isAsciiPassword(String value) =>
+      value.codeUnits.every((unit) => unit >= 0x21 && unit <= 0x7E);
+
+  bool get _passwordIsValid =>
+      _isAsciiPassword(_passwordController.text) &&
+      _passwordRules.every((rule) => rule.isMet);
 
   Color get _successColor {
     return Theme.of(context).brightness == Brightness.dark
@@ -363,6 +370,11 @@ class _SignupPageState extends State<SignupPage> {
                     TextFormField(
                       focusNode: _emailFocusNode,
                       controller: _emailController,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(
+                          _englishPrintableCharacters,
+                        ),
+                      ],
                       autofillHints: const [AutofillHints.email],
                       textInputAction: TextInputAction.next,
                       onFieldSubmitted: (_) => _passwordFocusNode.requestFocus(),
@@ -393,6 +405,12 @@ class _SignupPageState extends State<SignupPage> {
                     TextFormField(
                       focusNode: _passwordFocusNode,
                       controller: _passwordController,
+                      textDirection: TextDirection.ltr,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(
+                          _englishPrintableCharacters,
+                        ),
+                      ],
                       autofillHints: const [AutofillHints.newPassword],
                       textInputAction: TextInputAction.next,
                       onFieldSubmitted: (_) => _confirmFocusNode.requestFocus(),
@@ -426,6 +444,9 @@ class _SignupPageState extends State<SignupPage> {
                         if (value == null || value.isEmpty) {
                           return 'أدخل كلمة المرور.';
                         }
+                        if (!_isAsciiPassword(value)) {
+                          return 'استخدم أحرفًا إنجليزية ورموزًا فقط.';
+                        }
                         if (!_passwordIsValid) {
                           return 'كلمة المرور لا تحقق جميع الشروط.';
                         }
@@ -440,6 +461,12 @@ class _SignupPageState extends State<SignupPage> {
                       textInputAction: TextInputAction.done,
                       onFieldSubmitted: (_) => _loading ? null : _createAccount(),
                       controller: _confirmController,
+                      textDirection: TextDirection.ltr,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(
+                          _englishPrintableCharacters,
+                        ),
+                      ],
                       obscureText: _hideConfirm,
                       enableSuggestions: false,
                       autocorrect: false,
