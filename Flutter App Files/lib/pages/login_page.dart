@@ -15,88 +15,175 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  static final RegExp _emailPattern =
+      RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+
   final _formKey = GlobalKey<FormState>();
+  final _emailFocusNode = FocusNode();
+  final _passwordFocusNode = FocusNode();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _authService = AuthService();
+
   bool _rememberMe = false;
   bool _hidePassword = true;
   bool _loading = false;
+  bool _emailTouched = false;
+  bool _passwordTouched = false;
+
+  bool get _emailIsValid {
+    final value = _emailController.text.trim();
+    return value.isNotEmpty && _emailPattern.hasMatch(value);
+  }
+
+  bool get _passwordIsValid {
+    final password = _passwordController.text;
+    return password.length >= 8 &&
+        RegExp(r'[A-Z]').hasMatch(password) &&
+        RegExp(r'[a-z]').hasMatch(password) &&
+        RegExp(r'\d').hasMatch(password) &&
+        RegExp(r'[^A-Za-z0-9\s]').hasMatch(password);
+  }
+
+  Color get _successColor {
+    return Theme.of(context).brightness == Brightness.dark
+        ? Colors.green.shade300
+        : Colors.green.shade800;
+  }
 
   @override
   void dispose() {
+    _emailFocusNode.dispose();
+    _passwordFocusNode.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
+  InputDecoration _fieldDecoration({
+    required String labelText,
+    required IconData prefixIcon,
+    required bool touched,
+    required bool isValid,
+    Widget? suffixIcon,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    final Color normalBorder = colors.outline;
+    final Color currentBorder = !touched
+        ? normalBorder
+        : isValid
+            ? _successColor
+            : colors.error;
+
+    OutlineInputBorder outline(Color color, {double width = 1.2}) {
+      return OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: color, width: width),
+      );
+    }
+
+    return InputDecoration(
+      labelText: labelText,
+      prefixIcon: ExcludeSemantics(child: Icon(prefixIcon)),
+      suffixIcon: suffixIcon,
+      border: outline(normalBorder),
+      enabledBorder: outline(currentBorder),
+      focusedBorder: outline(currentBorder, width: 1.8),
+      errorBorder: outline(colors.error),
+      focusedErrorBorder: outline(colors.error, width: 1.8),
+      errorMaxLines: 2,
+    );
+  }
+
   Future<void> _login() async {
-  if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) {
+      if (!_emailIsValid) {
+        _emailFocusNode.requestFocus();
+      } else {
+        _passwordFocusNode.requestFocus();
+      }
+      return;
+    }
 
-  setState(() => _loading = true);
+    setState(() => _loading = true);
 
-  try {
-    await _authService.signIn(
-      email: _emailController.text,
-      password: _passwordController.text,
-    );
+    try {
+      await _authService.signIn(
+        email: _emailController.text,
+        password: _passwordController.text,
+      );
 
-    final preferences = await SharedPreferences.getInstance();
-    await preferences.setBool('rememberMe', _rememberMe);
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setBool('rememberMe', _rememberMe);
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute<void>(
-        builder: (_) => const HomePage(),
-      ),
-      (_) => false,
-    );
-  } on FirebaseAuthException catch (e) {
-    _showMessage(_authError(e.code));
-  } catch (_) {
-    _showMessage(
-      'تعذر تسجيل الدخول. يرجى التحقق من الاتصال والمحاولة مجددًا.',
-    );
-  } finally {
-    if (mounted) {
-      setState(() => _loading = false);
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => const HomePage(),
+        ),
+        (_) => false,
+      );
+    } on FirebaseAuthException catch (e) {
+      _showMessage(_authError(e.code));
+    } catch (_) {
+      _showMessage(
+        'تعذر تسجيل الدخول. تحقق من الاتصال وحاول مجددًا.',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
-}
 
   String _authError(String code) {
     switch (code) {
-      case 'invalid-email': return 'صيغة البريد الإلكتروني غير صحيحة.';
+      case 'invalid-email':
+        return 'البريد الإلكتروني غير صحيح.';
       case 'user-not-found':
       case 'invalid-credential':
-      case 'wrong-password': return 'البريد الإلكتروني أو كلمة المرور غير صحيحة.';
-      case 'user-disabled': return 'هذا الحساب غير مفعّل. يرجى التواصل مع الدعم.';
-      case 'too-many-requests': return 'عدد المحاولات كبير. يرجى المحاولة لاحقًا.';
-      case 'network-request-failed': return 'تعذر الاتصال بالإنترنت. يرجى المحاولة مجددًا.';
-      default: return 'تعذر تسجيل الدخول. يرجى المحاولة مجددًا.';
+      case 'wrong-password':
+        return 'بيانات الدخول غير صحيحة.';
+      case 'user-disabled':
+        return 'الحساب غير مفعّل. تواصل مع الدعم.';
+      case 'too-many-requests':
+        return 'محاولات كثيرة. حاول لاحقًا.';
+      case 'network-request-failed':
+        return 'تعذر الاتصال بالإنترنت. تحقق من الاتصال وحاول مجددًا.';
+      default:
+        return 'تعذر تسجيل الدخول. حاول مجددًا.';
     }
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Semantics(
+          excludeSemantics: true,
+          liveRegion: true,
+          label: message,
+          child: Text(message),
+        ),
+      ),
+    );
   }
 
-  Future<void> _resetPassword() async {
-  final email = _emailController.text.trim();
-
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => PasswordResetPage(initialEmail: email),
-    ),
-  );
-}
+  void _resetPassword() {
+    final email = _emailController.text.trim();
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => PasswordResetPage(initialEmail: email),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
     return Scaffold(
       appBar: AppBar(title: const Text('تسجيل الدخول')),
       body: SafeArea(
@@ -110,64 +197,108 @@ class _LoginPageState extends State<LoginPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Icon(Icons.explore_outlined, size: 76),
+                    const ExcludeSemantics(
+                      child: Icon(Icons.explore_outlined, size: 76),
+                    ),
                     const SizedBox(height: 16),
-                    Text('أهلًا بعودتك',
+                    Semantics(
+                      header: true,
+                      child: Text(
+                        'أهلًا بعودتك',
                         style: theme.textTheme.headlineMedium,
-                        textAlign: TextAlign.center),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
                     const SizedBox(height: 8),
-                    Text('يمكن تسجيل الدخول للمتابعة مع دلني.',
-                        style: theme.textTheme.bodyLarge,
-                        textAlign: TextAlign.center),
+                    Text(
+                      'يمكن تسجيل الدخول للمتابعة مع دُلّني.',
+                      style: theme.textTheme.bodyLarge,
+                      textAlign: TextAlign.center,
+                    ),
                     const SizedBox(height: 28),
                     TextFormField(
+                      focusNode: _emailFocusNode,
                       controller: _emailController,
+                      autofillHints: const [AutofillHints.email],
+                      textInputAction: TextInputAction.next,
+                      onFieldSubmitted: (_) => _passwordFocusNode.requestFocus(),
                       keyboardType: TextInputType.emailAddress,
                       textDirection: TextDirection.ltr,
-                      decoration: const InputDecoration(
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      decoration: _fieldDecoration(
                         labelText: 'البريد الإلكتروني',
-                        prefixIcon: Icon(Icons.email_outlined),
+                        prefixIcon: Icons.email_outlined,
+                        touched: _emailTouched,
+                        isValid: _emailIsValid,
                       ),
-                      validator: (v) {
-                        final value = v?.trim() ?? '';
-                        if (value.isEmpty) return 'يرجى إدخال البريد الإلكتروني.';
-                        if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value)) {
-                          return 'صيغة البريد الإلكتروني غير صحيحة. يرجى إدخال بريد صالح.';
+                      onChanged: (_) {
+                        setState(() => _emailTouched = true);
+                      },
+                      validator: (value) {
+                        final email = value?.trim() ?? '';
+                        if (email.isEmpty) {
+                          return 'أدخل البريد الإلكتروني.';
+                        }
+                        if (!_emailPattern.hasMatch(email)) {
+                          return 'أدخل بريدًا إلكترونيًا صحيحًا.';
                         }
                         return null;
                       },
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
+                      focusNode: _passwordFocusNode,
                       controller: _passwordController,
+                      autofillHints: const [AutofillHints.password],
+                      textInputAction: TextInputAction.done,
+                      onFieldSubmitted: (_) => _loading ? null : _login(),
                       obscureText: _hidePassword,
-                      decoration: InputDecoration(
+                      enableSuggestions: false,
+                      autocorrect: false,
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      decoration: _fieldDecoration(
                         labelText: 'كلمة المرور',
-                        prefixIcon: const Icon(Icons.lock_outline),
+                        prefixIcon: Icons.lock_outline,
+                        touched: _passwordTouched,
+                        isValid: _passwordIsValid,
                         suffixIcon: IconButton(
-                          tooltip: _hidePassword ? 'إظهار كلمة المرور' : 'إخفاء كلمة المرور',
-                          onPressed: () => setState(() => _hidePassword = !_hidePassword),
-                          icon: Icon(_hidePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                          tooltip: _hidePassword
+                              ? 'إظهار كلمة المرور'
+                              : 'إخفاء كلمة المرور',
+                          onPressed: () {
+                            setState(() => _hidePassword = !_hidePassword);
+                          },
+                          icon: Icon(
+                            _hidePassword
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                          ),
                         ),
                       ),
-                      validator: (v) => (v == null || v.isEmpty)
-                          ? 'يرجى إدخال كلمة المرور.'
-                          : null,
+                      onChanged: (_) {
+                        setState(() => _passwordTouched = true);
+                      },
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'أدخل كلمة المرور.';
+                        }
+                        if (!_passwordIsValid) {
+                          return 'أدخل كلمة مرور صالحة.';
+                        }
+                        return null;
+                      },
                     ),
                     CheckboxListTile(
-                    value: _rememberMe,
-                    onChanged: _loading
-                        ? null
-                        : (value) {
-                            setState(() {
-                              _rememberMe = value ?? false;
-                            });
-                          },
-                    title: const Text('تذكرني'),
-                    controlAffinity: ListTileControlAffinity.leading,
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                  ),
+                      value: _rememberMe,
+                      onChanged: _loading
+                          ? null
+                          : (value) {
+                              setState(() => _rememberMe = value ?? false);
+                            },
+                      title: const Text('تذكّرني'),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      contentPadding: EdgeInsets.zero,
+                    ),
                     Align(
                       alignment: AlignmentDirectional.centerEnd,
                       child: TextButton(
@@ -179,19 +310,30 @@ class _LoginPageState extends State<LoginPage> {
                     ElevatedButton(
                       onPressed: _loading ? null : _login,
                       child: _loading
-                          ? const SizedBox(height: 24, width: 24,
-                              child: CircularProgressIndicator(strokeWidth: 2))
+                          ? Semantics(
+                              excludeSemantics: true,
+                              liveRegion: true,
+                              label: 'جارٍ تسجيل الدخول',
+                              child: SizedBox(
+                                height: 24,
+                                width: 24,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            )
                           : const Text('تسجيل الدخول'),
                     ),
                     const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        const Flexible(child: Text('لا يوجد حساب؟')),
+                        const Text('لا يوجد حساب؟'),
                         TextButton(
                           onPressed: () => Navigator.pushReplacement(
                             context,
-                            MaterialPageRoute(builder: (_) => const SignupPage()),
+                            MaterialPageRoute<void>(
+                              builder: (_) => const SignupPage(),
+                            ),
                           ),
                           child: const Text('إنشاء حساب'),
                         ),
