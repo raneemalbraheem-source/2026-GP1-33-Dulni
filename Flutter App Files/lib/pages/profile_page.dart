@@ -292,8 +292,9 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   String? _validateNewPassword(String? value) {
-    if (value == null || value.isEmpty)
+    if (value == null || value.isEmpty) {
       return 'يرجى إدخال كلمة المرور الجديدة.';
+    }
     if (value == _currentPasswordController.text) {
       return 'اختر كلمة مرور تختلف عن كلمة المرور الحالية.';
     }
