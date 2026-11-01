@@ -1,0 +1,104 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function validProfile(data) {
+      let fields = [
+        'fullName', 'updatedAt', 'accountStatus', 'voicePersona',
+        'speechRate', 'instructionFrequency', 'alertRepetitionCount',
+        'vibrationEnabled'
+      ];
+      return data.keys().hasAll(fields)
+        && data.keys().hasOnly(fields)
+        && data.fullName is string
+        && data.updatedAt is timestamp
+        && data.accountStatus is string
+        && data.voicePersona is string
+        && data.speechRate is number
+        && data.speechRate > 0
+        && data.instructionFrequency is string
+        && data.alertRepetitionCount is int
+        && data.alertRepetitionCount >= 0
+        && data.vibrationEnabled is bool;
+    }
+
+    function validProfileName(name) {
+      return name is string && name.size() >= 2 && name.size() <= 20;
+    }
+
+    function validFavorite(data) {
+      return data.keys().hasAll(['placeName', 'address'])
+        && data.keys().hasOnly(['placeName', 'address'])
+        && data.placeName is string
+        && data.address is string;
+    }
+
+    function validSession(data) {
+      let endTime = data.get('endedAt', null);
+      return data.keys().hasAll([
+          'startLocation', 'destination', 'startedAt', 'status', 'distance'
+        ])
+        && data.keys().hasOnly([
+          'startLocation', 'destination', 'startedAt', 'endedAt', 'status',
+          'distance'
+        ])
+        && data.startLocation is latlng
+        && data.destination is latlng
+        && data.startedAt is timestamp
+        && (
+          endTime == null
+          || (endTime is timestamp && endTime >= data.startedAt)
+        )
+        && data.status is string
+        && data.distance is number
+        && data.distance >= 0;
+    }
+
+    match /User/{userId} {
+      allow read, delete: if isOwner(userId);
+
+      allow create: if isOwner(userId)
+        && validProfile(request.resource.data)
+        && request.resource.data.accountStatus == 'active'
+        && request.resource.data.updatedAt == request.time;
+
+      // Keep strict schema validation for full profile and preference updates.
+      allow update: if isOwner(userId)
+        && validProfile(request.resource.data)
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'fullName', 'voicePersona', 'speechRate', 'instructionFrequency',
+          'alertRepetitionCount', 'vibrationEnabled', 'updatedAt'
+        ]);
+
+      // Let an owner edit only their name on an older, incomplete profile.
+      allow update: if isOwner(userId)
+        && validProfileName(request.resource.data.fullName)
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'fullName', 'updatedAt'
+        ]);
+
+      match /favoriteLocations/{favoriteId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && validFavorite(request.resource.data);
+      }
+
+      match /navigationSessions/{sessionId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && validSession(request.resource.data);
+        allow update: if isOwner(userId)
+          && validSession(request.resource.data)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'destination', 'endedAt', 'status', 'distance'
+          ]);
+      }
+    }
+  }
+}

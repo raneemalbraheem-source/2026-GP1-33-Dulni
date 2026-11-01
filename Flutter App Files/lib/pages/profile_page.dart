@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../services/auth_service.dart';
 import 'login_page.dart';
@@ -7,7 +8,6 @@ import 'welcome_page.dart';
 import '../widgets/app_bottom_navigation.dart';
 import 'home_page.dart';
 import '../services/logout_helper.dart';
-
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -17,6 +17,8 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
+  static final RegExp _englishPrintableCharacters = RegExp(r'[\x21-\x7E]');
+
   final _nameFormKey = GlobalKey<FormState>();
   final _passwordFormKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
@@ -34,7 +36,60 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _hideCurrentPassword = true;
   bool _hideNewPassword = true;
   bool _hideConfirmPassword = true;
+  bool _newPasswordTouched = false;
+  bool _confirmPasswordTouched = false;
   String? _email;
+  String _savedName = '';
+
+  bool get _nameHasChanged => _nameController.text.trim() != _savedName;
+
+  String? get _confirmPasswordErrorText {
+    if (!_confirmPasswordTouched) return null;
+    if (_confirmPasswordController.text.isEmpty) {
+      return 'يرجى تأكيد كلمة المرور الجديدة.';
+    }
+    if (_confirmPasswordController.text != _newPasswordController.text) {
+      return 'كلمتا المرور غير متطابقتين.';
+    }
+    return null;
+  }
+
+  List<_PasswordRule> get _newPasswordRules {
+    final password = _newPasswordController.text;
+    return [
+      _PasswordRule('8 أحرف على الأقل', password.length >= 8),
+      _PasswordRule(
+        'حرف إنجليزي كبير واحد على الأقل (A–Z)',
+        RegExp(r'[A-Z]').hasMatch(password),
+      ),
+      _PasswordRule(
+        'حرف إنجليزي صغير واحد على الأقل (a–z)',
+        RegExp(r'[a-z]').hasMatch(password),
+      ),
+      _PasswordRule(
+        'رقم واحد على الأقل (0–9)',
+        RegExp(r'\d').hasMatch(password),
+      ),
+      _PasswordRule(
+        'رمز خاص واحد على الأقل (مثل ! أو @ أو #)',
+        RegExp(r'[^A-Za-z0-9\s]').hasMatch(password),
+      ),
+      _PasswordRule(
+        'يجب أن تختلف عن كلمة المرور الحالية',
+        password.isNotEmpty && password != _currentPasswordController.text,
+      ),
+    ];
+  }
+
+  bool get _newPasswordIsValid =>
+      _newPasswordController.text.codeUnits.every(
+        (unit) => unit >= 0x21 && unit <= 0x7E,
+      ) &&
+      _newPasswordRules.every((rule) => rule.isMet);
+
+  Color get _successColor => Theme.of(context).brightness == Brightness.dark
+      ? Colors.green.shade300
+      : Colors.green.shade800;
 
   @override
   void initState() {
@@ -56,7 +111,8 @@ class _ProfilePageState extends State<ProfilePage> {
       final user = _authService.currentUser;
       final name = await _authService.getFullName();
       if (!mounted) return;
-      _nameController.text = name ?? '';
+      _savedName = (name ?? '').trim();
+      _nameController.text = _savedName;
       setState(() {
         _email = user?.email;
         _loadingProfile = false;
@@ -67,16 +123,21 @@ class _ProfilePageState extends State<ProfilePage> {
         _email = _authService.currentUser?.email;
         _loadingProfile = false;
       });
-      _showMessage('تعذر تحميل بيانات الملف الشخصي. تحقق من اتصالك ثم أعد المحاولة.');
+      _showMessage(
+        'تعذر تحميل بيانات الملف الشخصي. تحقق من اتصالك ثم أعد المحاولة.',
+      );
     }
   }
 
   Future<void> _saveName() async {
     if (!_nameFormKey.currentState!.validate()) return;
+    final updatedName = _nameController.text.trim();
     setState(() => _savingName = true);
     try {
-      await _authService.updateFullName(_nameController.text);
+      await _authService.updateFullName(updatedName);
       if (!mounted) return;
+      _savedName = updatedName;
+      _nameController.text = updatedName;
       _showMessage('تم حفظ الاسم بنجاح.');
     } on FirebaseException catch (error) {
       if (!mounted) return;
@@ -103,6 +164,8 @@ class _ProfilePageState extends State<ProfilePage> {
       _confirmPasswordController.clear();
       setState(() {
         _showPasswordFields = false;
+        _newPasswordTouched = false;
+        _confirmPasswordTouched = false;
         _hideCurrentPassword = true;
         _hideNewPassword = true;
         _hideConfirmPassword = true;
@@ -124,6 +187,8 @@ class _ProfilePageState extends State<ProfilePage> {
       _currentPasswordController.clear();
       _newPasswordController.clear();
       _confirmPasswordController.clear();
+      _newPasswordTouched = false;
+      _confirmPasswordTouched = false;
     }
     setState(() {
       _showPasswordFields = !_showPasswordFields;
@@ -192,7 +257,7 @@ class _ProfilePageState extends State<ProfilePage> {
       );
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil<void>(
-      MaterialPageRoute<void>(builder: (_) => const WelcomePage()),
+        MaterialPageRoute<void>(builder: (_) => const WelcomePage()),
         (_) => false,
       );
     } on FirebaseException catch (error, stackTrace) {
@@ -227,25 +292,24 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   String? _validateNewPassword(String? value) {
-    if (value == null || value.isEmpty) return 'يرجى إدخال كلمة المرور الجديدة.';
-    if (value.length < 8) return 'يجب ألا تقل كلمة المرور عن 8 أحرف.';
-    if (!RegExp(r'[A-Z]').hasMatch(value)) {
-      return 'يلزم وجود حرف إنجليزي كبير واحد على الأقل.';
+    if (value == null || value.isEmpty)
+      return 'يرجى إدخال كلمة المرور الجديدة.';
+    if (value == _currentPasswordController.text) {
+      return 'اختر كلمة مرور تختلف عن كلمة المرور الحالية.';
     }
-    if (!RegExp(r'[a-z]').hasMatch(value)) {
-      return 'يلزم وجود حرف إنجليزي صغير واحد على الأقل.';
-    }
-    if (!RegExp(r'\d').hasMatch(value)) {
-      return 'يلزم وجود رقم واحد على الأقل.';
-    }
-    if (!RegExp(r'[^A-Za-z0-9]').hasMatch(value)) {
-      return 'يلزم وجود رمز خاص واحد على الأقل.';
-    }
+    if (!_newPasswordIsValid) return 'كلمة المرور لا تحقق جميع الشروط.';
     return null;
   }
 
   String _firebaseMessage(FirebaseException error) {
     switch (error.code) {
+      case 'permission-denied':
+        return 'تعذّر حفظ الاسم لأن صلاحيات قاعدة البيانات تمنع ذلك. '
+            'تحقق من قواعد Firestore.';
+      case 'unauthenticated':
+        return 'انتهت جلسة الدخول. سجّل الدخول مرة أخرى ثم حاول حفظ الاسم.';
+      case 'unavailable':
+        return 'قاعدة البيانات غير متاحة حاليًا. تحقق من اتصالك ثم أعد المحاولة.';
       case 'wrong-password':
       case 'invalid-credential':
         return 'كلمة المرور الحالية غير صحيحة.';
@@ -263,9 +327,8 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   Widget _passwordField({
@@ -276,19 +339,48 @@ class _ProfilePageState extends State<ProfilePage> {
     required VoidCallback toggle,
     String? Function(String?)? validator,
     String? helperText,
+    bool livePasswordValidation = false,
+    ValueChanged<String>? onChanged,
+    String? forceErrorText,
   }) {
+    final colors = Theme.of(context).colorScheme;
+    final borderColor = !livePasswordValidation || !_newPasswordTouched
+        ? colors.outline
+        : _newPasswordIsValid
+        ? _successColor
+        : colors.error;
+
+    OutlineInputBorder outline(Color color, {double width = 1.2}) =>
+        OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: color, width: width),
+        );
+
     return TextFormField(
       controller: controller,
       obscureText: hidden,
       textDirection: TextDirection.ltr,
       autocorrect: false,
       enableSuggestions: false,
+      inputFormatters: livePasswordValidation
+          ? [FilteringTextInputFormatter.allow(_englishPrintableCharacters)]
+          : null,
       validator: validator,
+      forceErrorText: forceErrorText,
+      autovalidateMode: livePasswordValidation
+          ? AutovalidateMode.onUserInteraction
+          : AutovalidateMode.disabled,
+      onChanged: onChanged,
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
         helperText: helperText,
         prefixIcon: const Icon(Icons.lock_outline),
+        border: outline(colors.outline),
+        enabledBorder: outline(borderColor),
+        focusedBorder: outline(borderColor, width: 1.8),
+        errorBorder: outline(colors.error),
+        focusedErrorBorder: outline(colors.error, width: 1.8),
         suffixIcon: IconButton(
           tooltip: hidden ? 'إظهار كلمة المرور' : 'إخفاء كلمة المرور',
           onPressed: toggle,
@@ -300,18 +392,80 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  Widget _buildNewPasswordRules() {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(start: 8, top: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Semantics(
+            header: true,
+            child: Text(
+              'متطلبات كلمة المرور:',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          ..._newPasswordRules.map((rule) {
+            final color = !_newPasswordTouched
+                ? theme.colorScheme.onSurfaceVariant
+                : rule.isMet
+                ? _successColor
+                : theme.colorScheme.error;
+            final icon = !_newPasswordTouched
+                ? Icons.radio_button_unchecked
+                : rule.isMet
+                ? Icons.check_circle
+                : Icons.cancel_outlined;
+            final spokenStatus = !_newPasswordTouched
+                ? 'لم يبدأ التحقق بعد'
+                : rule.isMet
+                ? 'مستوفى'
+                : 'غير مستوفى';
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Semantics(
+                container: true,
+                excludeSemantics: true,
+                label: '$spokenStatus: ${rule.label}',
+                child: Row(
+                  children: [
+                    ExcludeSemantics(child: Icon(icon, color: color, size: 17)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        rule.label,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: color,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final busy = _savingName || _changingPassword || _loggingOut || _deletingAccount;
+    final busy =
+        _savingName || _changingPassword || _loggingOut || _deletingAccount;
 
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-      //appBar: AppBar(title: const Text('الملف الشخصي')),
+        //appBar: AppBar(title: const Text('الملف الشخصي')),
         appBar: AppBar(
-        automaticallyImplyLeading: false,
-        title: const Text('الملف الشخصي'),
+          automaticallyImplyLeading: false,
+          title: const Text('الملف الشخصي'),
         ),
 
         body: SafeArea(
@@ -341,6 +495,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                     controller: _nameController,
                                     textCapitalization:
                                         TextCapitalization.words,
+                                    onChanged: (_) => setState(() {}),
                                     decoration: const InputDecoration(
                                       labelText: 'الاسم الكامل',
                                       prefixIcon: Icon(Icons.person_outline),
@@ -356,16 +511,18 @@ class _ProfilePageState extends State<ProfilePage> {
                                     decoration: const InputDecoration(
                                       labelText: 'البريد الإلكتروني',
                                       prefixIcon: Icon(Icons.email_outlined),
-                                      helperText: 'لا يمكن تغيير البريد الإلكتروني.',
+                                      helperText:
+                                          'لا يمكن تغيير البريد الإلكتروني.',
                                     ),
                                   ),
                                   const SizedBox(height: 16),
-                                  FilledButton(
-                                    onPressed: _savingName ? null : _saveName,
-                                    child: _savingName
-                                        ? const CircularProgressIndicator()
-                                        : const Text('حفظ الاسم'),
-                                  ),
+                                  if (_nameHasChanged)
+                                    FilledButton(
+                                      onPressed: _savingName ? null : _saveName,
+                                      child: _savingName
+                                          ? const CircularProgressIndicator()
+                                          : const Text('حفظ الاسم'),
+                                    ),
                                 ],
                               ),
                             ),
@@ -395,19 +552,23 @@ class _ProfilePageState extends State<ProfilePage> {
                               Form(
                                 key: _passwordFormKey,
                                 child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
                                   children: [
                                     _passwordField(
                                       label: 'كلمة المرور الحالية',
                                       hint: '',
                                       controller: _currentPasswordController,
                                       hidden: _hideCurrentPassword,
-                                      toggle: () => setState(() =>
-                                          _hideCurrentPassword =
-                                              !_hideCurrentPassword),
-                                      validator: (value) => value == null || value.isEmpty
+                                      toggle: () => setState(
+                                        () => _hideCurrentPassword =
+                                            !_hideCurrentPassword,
+                                      ),
+                                      validator: (value) =>
+                                          value == null || value.isEmpty
                                           ? 'يرجى إدخال كلمة المرور الحالية.'
                                           : null,
+                                      onChanged: (_) => setState(() {}),
                                     ),
                                     const SizedBox(height: 16),
                                     _passwordField(
@@ -415,30 +576,41 @@ class _ProfilePageState extends State<ProfilePage> {
                                       hint: '',
                                       controller: _newPasswordController,
                                       hidden: _hideNewPassword,
-                                      toggle: () => setState(() =>
-                                          _hideNewPassword = !_hideNewPassword),
+                                      toggle: () => setState(
+                                        () => _hideNewPassword =
+                                            !_hideNewPassword,
+                                      ),
                                       validator: _validateNewPassword,
-                                      helperText:
-                                          '8 أحرف على الأقل، مع حرف كبير وصغير ورقم ورمز خاص.',
+                                      livePasswordValidation: true,
+                                      onChanged: (_) => setState(
+                                        () => _newPasswordTouched = true,
+                                      ),
                                     ),
+                                    _buildNewPasswordRules(),
                                     const SizedBox(height: 16),
                                     _passwordField(
                                       label: 'تأكيد كلمة المرور الجديدة',
                                       hint: '',
                                       controller: _confirmPasswordController,
                                       hidden: _hideConfirmPassword,
-                                      toggle: () => setState(() =>
-                                          _hideConfirmPassword =
-                                              !_hideConfirmPassword),
+                                      toggle: () => setState(
+                                        () => _hideConfirmPassword =
+                                            !_hideConfirmPassword,
+                                      ),
                                       validator: (value) {
                                         if (value == null || value.isEmpty) {
                                           return 'يرجى تأكيد كلمة المرور الجديدة.';
                                         }
-                                        if (value != _newPasswordController.text) {
+                                        if (value !=
+                                            _newPasswordController.text) {
                                           return 'كلمتا المرور غير متطابقتين.';
                                         }
                                         return null;
                                       },
+                                      forceErrorText: _confirmPasswordErrorText,
+                                      onChanged: (_) => setState(
+                                        () => _confirmPasswordTouched = true,
+                                      ),
                                     ),
                                     const SizedBox(height: 16),
                                     FilledButton(
@@ -447,7 +619,9 @@ class _ProfilePageState extends State<ProfilePage> {
                                           : _changePassword,
                                       child: _changingPassword
                                           ? const CircularProgressIndicator()
-                                          : const Text('حفظ كلمة المرور الجديدة'),
+                                          : const Text(
+                                              'حفظ كلمة المرور الجديدة',
+                                            ),
                                     ),
                                   ],
                                 ),
@@ -467,7 +641,9 @@ class _ProfilePageState extends State<ProfilePage> {
                             OutlinedButton.icon(
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: theme.colorScheme.error,
-                                side: BorderSide(color: theme.colorScheme.error),
+                                side: BorderSide(
+                                  color: theme.colorScheme.error,
+                                ),
                               ),
                               onPressed: _deletingAccount
                                   ? null
@@ -489,29 +665,31 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
         ),
         bottomNavigationBar: AppBottomNavigation(
-  currentIndex: 3,
-  onTap: (index) {
-    if (index == 1) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => HomePage(),
+          currentIndex: 3,
+          onTap: (index) {
+            if (index == 1) {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (_) => HomePage()),
+              );
+            }
+
+            if (index == 0) {
+              showLogoutDialog(context);
+            }
+          },
         ),
-      );
-    }
-    
-    
-   
-    if (index == 0) {
-      showLogoutDialog(context);
-    }
-  },
-),
       ),
     );
   }
 }
 
+class _PasswordRule {
+  const _PasswordRule(this.label, this.isMet);
+
+  final String label;
+  final bool isMet;
+}
 
 /// The dialog owns its controller and disposes it when its widget is removed.
 class _DeleteAccountDialog extends StatefulWidget {
@@ -570,9 +748,7 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
                 tooltip: _hidePassword
                     ? 'إظهار كلمة المرور'
                     : 'إخفاء كلمة المرور',
-                onPressed: () => setState(
-                  () => _hidePassword = !_hidePassword,
-                ),
+                onPressed: () => setState(() => _hidePassword = !_hidePassword),
                 icon: Icon(
                   _hidePassword
                       ? Icons.visibility_outlined

@@ -64,9 +64,26 @@ class AuthService {
 
   Future<void> updateFullName(String fullName) async {
     final user = _requireCurrentUser();
-    await _users.doc(user.uid).update({
+    final profile = _users.doc(user.uid);
+    final snapshot = await profile.get();
+    final nameUpdate = {
       'fullName': fullName.trim(),
       'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (snapshot.exists) {
+      await profile.update(nameUpdate);
+      return;
+    }
+
+    await profile.set({
+      ...nameUpdate,
+      'accountStatus': 'active',
+      'voicePersona': 'default',
+      'speechRate': 1.0,
+      'instructionFrequency': 'normal',
+      'alertRepetitionCount': 0,
+      'vibrationEnabled': true,
     });
   }
 
