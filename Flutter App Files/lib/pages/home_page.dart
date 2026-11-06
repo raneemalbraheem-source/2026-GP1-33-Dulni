@@ -7,7 +7,9 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
-import 'package:speech_to_text/speech_to_text.dart' as stt;
+
+import '../services/speech_recognition_service.dart';
+import '../services/voice_feedback_service.dart';
 
 import '../services/logout_helper.dart';
 import '../services/ors_service.dart';
@@ -27,7 +29,6 @@ class _HomePageState extends State<HomePage> {
   // Restrict client-side keys to the APIs and applications that need them.
   final String _geoapifyApiKey = 'd305829611ef40c487716573e326a0bb';
   final ORSService _orsService = ORSService();
-  final stt.SpeechToText _speech = stt.SpeechToText();
 
   final TextEditingController _startController = TextEditingController();
   final TextEditingController _destinationController = TextEditingController();
@@ -76,7 +77,9 @@ class _HomePageState extends State<HomePage> {
 
     setState(() => _locationPermissionGranted = granted);
     if (!granted) {
-      _showMessage('يمكنك تحديد نقطة بداية يدويًا، لكن استخدام موقعك الحالي يتطلب إذن الموقع.');
+      _showMessage(
+        'يمكنك تحديد نقطة بداية يدويًا، لكن استخدام موقعك الحالي يتطلب إذن الموقع.',
+      );
       return;
     }
 
@@ -86,7 +89,10 @@ class _HomePageState extends State<HomePage> {
   Future<void> _loadCurrentLocation({required bool moveCamera}) async {
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
-        if (mounted) _showMessage('خدمة الموقع متوقفة. فعّلها أو اختر نقطة بداية على الخريطة.');
+        if (mounted)
+          _showMessage(
+            'خدمة الموقع متوقفة. فعّلها أو اختر نقطة بداية على الخريطة.',
+          );
         return;
       }
 
@@ -96,7 +102,8 @@ class _HomePageState extends State<HomePage> {
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
-        if (mounted) _showMessage('إذن الموقع غير متاح. يمكنك تحديد نقطة البداية يدويًا.');
+        if (mounted)
+          _showMessage('إذن الموقع غير متاح. يمكنك تحديد نقطة البداية يدويًا.');
         return;
       }
 
@@ -117,7 +124,10 @@ class _HomePageState extends State<HomePage> {
       }
     } catch (error) {
       debugPrint('Unable to retrieve current location: $error');
-      if (mounted) _showMessage('تعذر تحديد موقعك الحالي. اختر نقطة البداية من الخريطة أو تحقق من إذن الموقع.');
+      if (mounted)
+        _showMessage(
+          'تعذر تحديد موقعك الحالي. اختر نقطة البداية من الخريطة أو تحقق من إذن الموقع.',
+        );
     }
   }
 
@@ -164,10 +174,14 @@ class _HomePageState extends State<HomePage> {
       _clearRouteVisuals();
       if (isStart) {
         _selectedStartLocation = null;
-        _markers.removeWhere((marker) => marker.markerId.value == 'start_marker');
+        _markers.removeWhere(
+          (marker) => marker.markerId.value == 'start_marker',
+        );
       } else {
         _selectedDestination = null;
-        _markers.removeWhere((marker) => marker.markerId.value == 'destination_marker');
+        _markers.removeWhere(
+          (marker) => marker.markerId.value == 'destination_marker',
+        );
       }
     });
 
@@ -175,7 +189,9 @@ class _HomePageState extends State<HomePage> {
     if (query.isEmpty) return;
 
     if (_geoapifyApiKey.trim().isEmpty) {
-      setState(() => _searchMessage = 'يلزم إعداد مفتاح خدمة البحث عن الأماكن.');
+      setState(
+        () => _searchMessage = 'يلزم إعداد مفتاح خدمة البحث عن الأماكن.',
+      );
       return;
     }
 
@@ -202,7 +218,9 @@ class _HomePageState extends State<HomePage> {
 
       final response = await http.get(uri);
       final decoded = jsonDecode(response.body);
-      final data = decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+      final data = decoded is Map<String, dynamic>
+          ? decoded
+          : <String, dynamic>{};
       if (!mounted || requestId != _searchRequestId) return;
 
       if (response.statusCode != 200) {
@@ -238,14 +256,17 @@ class _HomePageState extends State<HomePage> {
 
       setState(() {
         _predictions = results;
-        _searchMessage = results.isEmpty ? 'لم يتم العثور على أماكن مطابقة. جرّب اسمًا آخر.' : null;
+        _searchMessage = results.isEmpty
+            ? 'لم يتم العثور على أماكن مطابقة. جرّب اسمًا آخر.'
+            : null;
       });
     } catch (error) {
       if (!mounted || requestId != _searchRequestId) return;
       debugPrint('Geoapify place search failed: $error');
       setState(() {
         _predictions = [];
-        _searchMessage = 'تعذر الاتصال بخدمة البحث. تحقق من الإنترنت وحاول مجددًا.';
+        _searchMessage =
+            'تعذر الاتصال بخدمة البحث. تحقق من الإنترنت وحاول مجددًا.';
       });
     }
   }
@@ -256,7 +277,10 @@ class _HomePageState extends State<HomePage> {
     final latitude = prediction['lat'];
     final longitude = prediction['lon'];
     if (latitude is! num || longitude is! num) {
-      _showMessage('إحداثيات المكان غير صالحة. اختر مكانًا آخر.', isError: true);
+      _showMessage(
+        'إحداثيات المكان غير صالحة. اختر مكانًا آخر.',
+        isError: true,
+      );
       return;
     }
 
@@ -272,25 +296,33 @@ class _HomePageState extends State<HomePage> {
       if (_searchingForStart) {
         _selectedStartLocation = target;
         _startController.text = name;
-        _markers.removeWhere((marker) => marker.markerId.value == 'start_marker');
+        _markers.removeWhere(
+          (marker) => marker.markerId.value == 'start_marker',
+        );
         _markers.add(
           Marker(
             markerId: const MarkerId('start_marker'),
             position: target,
             infoWindow: InfoWindow(title: 'نقطة البداية: $name'),
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueGreen,
+            ),
           ),
         );
       } else {
         _selectedDestination = target;
         _destinationController.text = name;
-        _markers.removeWhere((marker) => marker.markerId.value == 'destination_marker');
+        _markers.removeWhere(
+          (marker) => marker.markerId.value == 'destination_marker',
+        );
         _markers.add(
           Marker(
             markerId: const MarkerId('destination_marker'),
             position: target,
             infoWindow: InfoWindow(title: 'الوجهة: $name'),
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueRed,
+            ),
           ),
         );
       }
@@ -323,7 +355,9 @@ class _HomePageState extends State<HomePage> {
           markerId: const MarkerId('start_marker'),
           position: target,
           infoWindow: const InfoWindow(title: 'نقطة البداية'),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueGreen,
+          ),
         ),
       );
     });
@@ -349,7 +383,10 @@ class _HomePageState extends State<HomePage> {
       );
     }
     if (_currentLocation == null) {
-      _showMessage('تعذر تحديد موقعك الحالي. تحقق من إذن الموقع وخدمة الموقع.', isError: true);
+      _showMessage(
+        'تعذر تحديد موقعك الحالي. تحقق من إذن الموقع وخدمة الموقع.',
+        isError: true,
+      );
       return;
     }
     _showMessage('سيُستخدم موقعك الحالي كنقطة بداية.');
@@ -369,7 +406,10 @@ class _HomePageState extends State<HomePage> {
 
     final startText = _startController.text.trim();
     if (startText.isNotEmpty && _selectedStartLocation == null) {
-      _showMessage('اختر نقطة البداية من نتائج البحث أو اترك الحقل فارغًا لاستخدام موقعك الحالي.', isError: true);
+      _showMessage(
+        'اختر نقطة البداية من نتائج البحث أو اترك الحقل فارغًا لاستخدام موقعك الحالي.',
+        isError: true,
+      );
       return;
     }
 
@@ -383,7 +423,10 @@ class _HomePageState extends State<HomePage> {
     }
 
     if (start == null) {
-      _showMessage('تعذر تحديد نقطة البداية. فعّل إذن الموقع أو اختر نقطة بداية على الخريطة.', isError: true);
+      _showMessage(
+        'تعذر تحديد نقطة البداية. فعّل إذن الموقع أو اختر نقطة بداية على الخريطة.',
+        isError: true,
+      );
       return;
     }
     final LatLng startLocation = start;
@@ -394,7 +437,10 @@ class _HomePageState extends State<HomePage> {
     });
 
     try {
-      final points = await _orsService.getPedestrianRoute(startLocation, destination);
+      final points = await _orsService.getPedestrianRoute(
+        startLocation,
+        destination,
+      );
       if (!mounted) return;
       if (points.isEmpty) {
         setState(() {
@@ -426,15 +472,19 @@ class _HomePageState extends State<HomePage> {
               width: 6,
             ),
           );
-        _markers.removeWhere((marker) =>
-            marker.markerId.value == 'start_marker' ||
-            marker.markerId.value == 'destination_marker');
+        _markers.removeWhere(
+          (marker) =>
+              marker.markerId.value == 'start_marker' ||
+              marker.markerId.value == 'destination_marker',
+        );
         _markers.add(
           Marker(
             markerId: const MarkerId('start_marker'),
             position: startLocation,
             infoWindow: const InfoWindow(title: 'نقطة البداية'),
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueGreen,
+            ),
           ),
         );
         _markers.add(
@@ -442,7 +492,9 @@ class _HomePageState extends State<HomePage> {
             markerId: const MarkerId('destination_marker'),
             position: destination,
             infoWindow: const InfoWindow(title: 'الوجهة'),
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueRed,
+            ),
           ),
         );
       });
@@ -450,7 +502,10 @@ class _HomePageState extends State<HomePage> {
     } catch (error) {
       debugPrint('ORS route request failed: $error');
       if (mounted) {
-        _showMessage('تعذر حساب المسار. تحقق من اتصال الإنترنت وإعدادات ORS.', isError: true);
+        _showMessage(
+          'تعذر حساب المسار. تحقق من اتصال الإنترنت وإعدادات ORS.',
+          isError: true,
+        );
       }
     } finally {
       if (mounted) setState(() => _isCalculatingRoute = false);
@@ -518,18 +573,28 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _startTrip() async {
-    if (_isNavigating || _routePoints.isEmpty || _routeStartLocation == null || _selectedDestination == null) {
+    if (_isNavigating ||
+        _routePoints.isEmpty ||
+        _routeStartLocation == null ||
+        _selectedDestination == null) {
       _showMessage('احسب المسار أولًا قبل بدء الرحلة.', isError: true);
       return;
     }
-    if (!_locationPermissionGranted || !await Geolocator.isLocationServiceEnabled()) {
-      _showMessage('يجب تفعيل خدمة الموقع والسماح بالوصول إلى الموقع لبدء التنقل.', isError: true);
+    if (!_locationPermissionGranted ||
+        !await Geolocator.isLocationServiceEnabled()) {
+      _showMessage(
+        'يجب تفعيل خدمة الموقع والسماح بالوصول إلى الموقع لبدء التنقل.',
+        isError: true,
+      );
       return;
     }
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      _showMessage('انتهت جلسة تسجيل الدخول. سجّل الدخول مجددًا.', isError: true);
+      _showMessage(
+        'انتهت جلسة تسجيل الدخول. سجّل الدخول مجددًا.',
+        isError: true,
+      );
       return;
     }
 
@@ -566,27 +631,34 @@ class _HomePageState extends State<HomePage> {
     } catch (error) {
       debugPrint('Failed to create navigation session: $error');
       if (mounted) {
-        _showMessage('تعذر حفظ الرحلة. تحقق من اتصال الإنترنت وصلاحيات قاعدة البيانات.', isError: true);
+        _showMessage(
+          'تعذر حفظ الرحلة. تحقق من اتصال الإنترنت وصلاحيات قاعدة البيانات.',
+          isError: true,
+        );
       }
     }
   }
 
   void _startLocationTracking() {
     _positionSubscription?.cancel();
-    _positionSubscription = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
-      ),
-    ).listen(
-      _handlePositionUpdate,
-      onError: (Object error) {
-        debugPrint('Navigation location stream failed: $error');
-        if (mounted && _isNavigating) {
-          _showMessage('توقف تحديث الموقع؛ قد تتأثر متابعة الرحلة. تحقق من إذن الموقع.', isError: true);
-        }
-      },
-    );
+    _positionSubscription =
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 5,
+          ),
+        ).listen(
+          _handlePositionUpdate,
+          onError: (Object error) {
+            debugPrint('Navigation location stream failed: $error');
+            if (mounted && _isNavigating) {
+              _showMessage(
+                'توقف تحديث الموقع؛ قد تتأثر متابعة الرحلة. تحقق من إذن الموقع.',
+                isError: true,
+              );
+            }
+          },
+        );
   }
 
   void _handlePositionUpdate(Position position) {
@@ -607,7 +679,10 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _finishTrip({bool reachedDestination = false, bool cancelled = false}) async {
+  Future<void> _finishTrip({
+    bool reachedDestination = false,
+    bool cancelled = false,
+  }) async {
     if (!_isNavigating || _isFinishingTrip) return;
     setState(() => _isFinishingTrip = true);
 
@@ -624,9 +699,9 @@ class _HomePageState extends State<HomePage> {
           .collection('navigationSessions')
           .doc(sessionId)
           .update({
-        'endedAt': FieldValue.serverTimestamp(),
-        'status': cancelled ? 'cancelled' : 'completed',
-      });
+            'endedAt': FieldValue.serverTimestamp(),
+            'status': cancelled ? 'cancelled' : 'completed',
+          });
 
       await _positionSubscription?.cancel();
       _positionSubscription = null;
@@ -654,52 +729,83 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _startVoiceDestinationSearch() async {
-    if (_isNavigating || _isCalculatingRoute) return;
+    if (_isNavigating || _isCalculatingRoute || _isListening) return;
+
     try {
-      final available = await _speech.initialize(
-        onStatus: (status) {
-          if (!mounted) return;
-          if (status == 'notListening' || status == 'done') {
-            setState(() => _isListening = false);
-          }
-        },
-        onError: (error) {
-          debugPrint('Speech recognition error: $error');
-          if (mounted) {
-            setState(() => _isListening = false);
-            _showMessage('تعذر التعرّف على الصوت. يمكنك كتابة اسم الوجهة.', isError: true);
-          }
-        },
-      );
-      if (!available) {
-        _showMessage('التعرّف الصوتي غير متاح على هذا الجهاز. اكتب اسم الوجهة بدلًا من ذلك.', isError: true);
-        return;
-      }
+      // Give the user a spoken prompt before opening the microphone.
+      await VoiceFeedbackService.instance.speak('تفضل، اذكر اسم الوجهة.');
+
+      if (!mounted) return;
 
       setState(() {
         _isListening = true;
         _searchingForStart = false;
       });
-      await _speech.listen(
-        localeId: 'ar_SA',
-        onResult: (result) {
+
+      final started = await SpeechRecognitionService.instance.startListening(
+        onResult: (recognizedText) {
           if (!mounted) return;
-          final recognizedText = result.recognizedWords.trim();
-          if (recognizedText.isEmpty) return;
+
+          final text = recognizedText.trim();
+          if (text.isEmpty) return;
+
           _destinationController.value = TextEditingValue(
-            text: recognizedText,
-            selection: TextSelection.collapsed(offset: recognizedText.length),
+            text: text,
+            selection: TextSelection.collapsed(offset: text.length),
           );
-          _onDestinationSearchChanged(recognizedText);
-          if (result.finalResult) setState(() => _isListening = false);
+
+          // Reuse the existing Geoapify search.
+          _onDestinationSearchChanged(text);
+
+          unawaited(
+            VoiceFeedbackService.instance.speak(
+              'تم التعرف على $text. جاري البحث عن الوجهة.',
+            ),
+          );
+        },
+        onStatus: (status) {
+          if (!mounted) return;
+
+          setState(() {
+            _isListening = status == 'listening';
+          });
+        },
+        onError: (message) {
+          debugPrint('Speech recognition error: $message');
+
+          if (!mounted) return;
+
+          setState(() => _isListening = false);
+
+          _showMessage(
+            'تعذر التعرف على الكلام. حاول مرة أخرى أو اكتب الوجهة.',
+            isError: true,
+          );
+
+          unawaited(
+            VoiceFeedbackService.instance.speak(
+              'تعذر التعرف على الكلام. حاول مرة أخرى.',
+            ),
+          );
         },
       );
-    } catch (error) {
-      debugPrint('Unable to start speech recognition: $error');
-      if (mounted) {
+
+      if (!started && mounted) {
         setState(() => _isListening = false);
-        _showMessage('تعذر تشغيل البحث الصوتي. يمكنك كتابة اسم الوجهة.', isError: true);
+
+        _showMessage(
+          'خدمة التعرف على الكلام غير متاحة. يمكنك كتابة الوجهة.',
+          isError: true,
+        );
       }
+    } catch (error) {
+      debugPrint('Unable to start voice destination search: $error');
+
+      if (!mounted) return;
+
+      setState(() => _isListening = false);
+
+      _showMessage('تعذر تشغيل البحث الصوتي. حاول مرة أخرى.', isError: true);
     }
   }
 
@@ -751,7 +857,7 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     _searchDebounce?.cancel();
     _positionSubscription?.cancel();
-    _speech.stop();
+    unawaited(SpeechRecognitionService.instance.stopListening());
     _startController.dispose();
     _destinationController.dispose();
     _mapController?.dispose();
@@ -760,7 +866,8 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final showSearchPanel = _predictions.isNotEmpty || _searchMessage != null || _isSelectingPlace;
+    final showSearchPanel =
+        _predictions.isNotEmpty || _searchMessage != null || _isSelectingPlace;
 
     return Scaffold(
       appBar: AppBar(
@@ -775,7 +882,9 @@ class _HomePageState extends State<HomePage> {
                 _mapController = controller;
                 final current = _currentLocation;
                 if (current != null) {
-                  controller.animateCamera(CameraUpdate.newLatLngZoom(current, 16));
+                  controller.animateCamera(
+                    CameraUpdate.newLatLngZoom(current, 16),
+                  );
                 }
               },
               myLocationEnabled: _locationPermissionGranted,
@@ -817,14 +926,22 @@ class _HomePageState extends State<HomePage> {
                       textInputAction: TextInputAction.search,
                       decoration: InputDecoration(
                         hintText: 'نقطة البداية (اتركها فارغة لموقعك الحالي)',
-                        prefixIcon: const Icon(Icons.trip_origin, color: Colors.green),
+                        prefixIcon: const Icon(
+                          Icons.trip_origin,
+                          color: Colors.green,
+                        ),
                         suffixIcon: IconButton(
                           tooltip: 'استخدام موقعي الحالي',
-                          onPressed: _isNavigating ? null : _useCurrentLocationAsStart,
+                          onPressed: _isNavigating
+                              ? null
+                              : _useCurrentLocationAsStart,
                           icon: const Icon(Icons.my_location),
                         ),
                         border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
                       ),
                     ),
                   ),
@@ -853,18 +970,26 @@ class _HomePageState extends State<HomePage> {
                         hintText: 'ابحث عن الوجهة أو استخدم الصوت',
                         prefixIcon: const Icon(Icons.search),
                         suffixIcon: IconButton(
-                          tooltip: _isListening ? 'إيقاف الاستماع' : 'البحث الصوتي عن الوجهة',
+                          tooltip: _isListening
+                              ? 'إيقاف الاستماع'
+                              : 'البحث الصوتي عن الوجهة',
                           onPressed: _isListening
                               ? () async {
-                                  await _speech.stop();
-                                  if (mounted) setState(() => _isListening = false);
+                                  await SpeechRecognitionService.instance
+                                      .stopListening();
+                                  if (mounted) {
+                                    setState(() => _isListening = false);
+                                  }
                                 }
                               : _startVoiceDestinationSearch,
                           icon: Icon(_isListening ? Icons.mic : Icons.mic_none),
                           color: _isListening ? Colors.red : null,
                         ),
                         border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
                       ),
                     ),
                   ),
@@ -886,51 +1011,63 @@ class _HomePageState extends State<HomePage> {
                           child: Center(child: CircularProgressIndicator()),
                         )
                       : _searchMessage != null
-                          ? Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Text(_searchMessage!, textAlign: TextAlign.center),
-                            )
-                          : ConstrainedBox(
-                              constraints: const BoxConstraints(maxHeight: 240),
-                              child: ListView.separated(
-                                padding: EdgeInsets.zero,
-                                shrinkWrap: true,
-                                itemCount: _predictions.length,
-                                separatorBuilder: (context, index) => const Divider(height: 1),
-                                itemBuilder: (context, index) {
-                                  final place = _predictions[index];
-                                  final formatted = place['formatted']?.toString();
-                                  return ListTile(
-                                    leading: Icon(
-                                      _searchingForStart ? Icons.trip_origin : Icons.place,
-                                      color: _searchingForStart ? Colors.green : Colors.red,
-                                    ),
-                                    title: Text(
-                                      _placeName(place),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    subtitle: formatted == null || formatted.isEmpty
-                                        ? null
-                                        : Text(
-                                            formatted,
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                    onTap: () => _selectPrediction(place),
-                                  );
-                                },
-                              ),
-                            ),
+                      ? Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(
+                            _searchMessage!,
+                            textAlign: TextAlign.center,
+                          ),
+                        )
+                      : ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 240),
+                          child: ListView.separated(
+                            padding: EdgeInsets.zero,
+                            shrinkWrap: true,
+                            itemCount: _predictions.length,
+                            separatorBuilder: (context, index) =>
+                                const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final place = _predictions[index];
+                              final formatted = place['formatted']?.toString();
+                              return ListTile(
+                                leading: Icon(
+                                  _searchingForStart
+                                      ? Icons.trip_origin
+                                      : Icons.place,
+                                  color: _searchingForStart
+                                      ? Colors.green
+                                      : Colors.red,
+                                ),
+                                title: Text(
+                                  _placeName(place),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: formatted == null || formatted.isEmpty
+                                    ? null
+                                    : Text(
+                                        formatted,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                onTap: () => _selectPrediction(place),
+                              );
+                            },
+                          ),
+                        ),
                 ),
               ),
-            if (!_isNavigating && _selectedDestination != null && _routePoints.isEmpty)
+            if (!_isNavigating &&
+                _selectedDestination != null &&
+                _routePoints.isEmpty)
               Positioned(
                 left: 12,
                 right: 12,
                 bottom: _routePoints.isEmpty ? 20 : 108,
                 child: FilledButton.icon(
-                  onPressed: _isCalculatingRoute ? null : _calculateAndDrawRoute,
+                  onPressed: _isCalculatingRoute
+                      ? null
+                      : _calculateAndDrawRoute,
                   icon: _isCalculatingRoute
                       ? const SizedBox(
                           width: 18,
@@ -938,7 +1075,11 @@ class _HomePageState extends State<HomePage> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.alt_route),
-                  label: Text(_isCalculatingRoute ? 'جارٍ حساب المسار...' : 'احسب مسار المشاة'),
+                  label: Text(
+                    _isCalculatingRoute
+                        ? 'جارٍ حساب المسار...'
+                        : 'احسب مسار المشاة',
+                  ),
                 ),
               ),
             if (_routePoints.isNotEmpty)
@@ -955,12 +1096,17 @@ class _HomePageState extends State<HomePage> {
                       children: [
                         Row(
                           children: [
-                            const Icon(Icons.straighten, color: Color(0xFF155EEF)),
+                            const Icon(
+                              Icons.straighten,
+                              color: Color(0xFF155EEF),
+                            ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
                                 'المسافة: $_routeDistanceLabel',
-                                style: const TextStyle(fontWeight: FontWeight.w600),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                             const Icon(Icons.schedule, color: Colors.orange),
@@ -968,7 +1114,9 @@ class _HomePageState extends State<HomePage> {
                             Expanded(
                               child: Text(
                                 'الوقت: $_routeDurationLabel',
-                                style: const TextStyle(fontWeight: FontWeight.w600),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
                                 textAlign: TextAlign.end,
                               ),
                             ),
@@ -989,7 +1137,9 @@ class _HomePageState extends State<HomePage> {
                             children: [
                               Expanded(
                                 child: OutlinedButton.icon(
-                                  onPressed: _isFinishingTrip ? null : _cancelTripWithConfirmation,
+                                  onPressed: _isFinishingTrip
+                                      ? null
+                                      : _cancelTripWithConfirmation,
                                   icon: const Icon(Icons.close),
                                   label: const Text('إلغاء الرحلة'),
                                 ),
@@ -997,9 +1147,15 @@ class _HomePageState extends State<HomePage> {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: FilledButton.icon(
-                                  onPressed: _isFinishingTrip ? null : () => _finishTrip(),
+                                  onPressed: _isFinishingTrip
+                                      ? null
+                                      : () => _finishTrip(),
                                   icon: const Icon(Icons.flag),
-                                  label: Text(_isFinishingTrip ? 'جارٍ الحفظ...' : 'إنهاء الرحلة'),
+                                  label: Text(
+                                    _isFinishingTrip
+                                        ? 'جارٍ الحفظ...'
+                                        : 'إنهاء الرحلة',
+                                  ),
                                 ),
                               ),
                             ],
