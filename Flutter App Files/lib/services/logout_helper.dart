@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
-import '../pages/login_page.dart';
+import '../pages/home_page.dart';
 
 Future<void> showLogoutDialog(BuildContext context) async {
   final shouldSignOut = await showDialog<bool>(
@@ -30,7 +30,7 @@ Future<void> showLogoutDialog(BuildContext context) async {
 
   Navigator.of(context).pushAndRemoveUntil(
     MaterialPageRoute(
-      builder: (_) => const LoginPage(),
+      builder: (_) => const HomePage(),
     ),
     (_) => false,
   );

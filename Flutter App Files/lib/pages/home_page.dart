@@ -16,6 +16,8 @@ import '../services/ors_service.dart';
 import '../services/permission_service.dart';
 import '../widgets/app_bottom_navigation.dart';
 import 'profile_page.dart';
+import 'login_page.dart';
+import 'signup_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -141,6 +143,24 @@ class _HomePageState extends State<HomePage> {
           backgroundColor: isError ? Colors.red.shade700 : null,
         ),
       );
+  }
+
+  Future<void> _promptSignIn() async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('تسجيل الدخول مطلوب'),
+        content: const Text('سجّل الدخول أو أنشئ حسابًا لحفظ الرحلات والبيانات الشخصية.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('لاحقًا')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext, 'signup'), child: const Text('إنشاء حساب')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, 'login'), child: const Text('تسجيل الدخول')),
+        ],
+      ),
+    );
+    if (!mounted || choice == null) return;
+    final page = choice == 'signup' ? const SignupPage() : const LoginPage();
+    await Navigator.push(context, MaterialPageRoute<void>(builder: (_) => page));
   }
 
   void _clearRouteVisuals() {
@@ -591,16 +611,13 @@ class _HomePageState extends State<HomePage> {
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      _showMessage(
-        'انتهت جلسة تسجيل الدخول. سجّل الدخول مجددًا.',
-        isError: true,
-      );
+      await _promptSignIn();
       return;
     }
 
     try {
       final session = FirebaseFirestore.instance
-          .collection('users')
+          .collection('User')
           .doc(user.uid)
           .collection('navigationSessions')
           .doc();
@@ -694,7 +711,7 @@ class _HomePageState extends State<HomePage> {
       }
 
       await FirebaseFirestore.instance
-          .collection('users')
+          .collection('User')
           .doc(uid)
           .collection('navigationSessions')
           .doc(sessionId)
@@ -873,6 +890,21 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         automaticallyImplyLeading: false,
         title: const Text('دُلّني'),
+        actions: [
+          StreamBuilder<User?>(
+            stream: FirebaseAuth.instance.authStateChanges(),
+            builder: (context, snapshot) {
+              final signedIn = snapshot.data != null;
+              return IconButton(
+                tooltip: signedIn ? 'الحساب' : 'تسجيل الدخول أو إنشاء حساب',
+                icon: Icon(signedIn ? Icons.account_circle : Icons.login),
+                onPressed: () => Navigator.push(context, MaterialPageRoute<void>(
+                  builder: (_) => signedIn ? const ProfilePage() : const LoginPage(),
+                )),
+              );
+            },
+          ),
+        ],
       ),
       body: SafeArea(
         child: Stack(
@@ -1170,14 +1202,22 @@ class _HomePageState extends State<HomePage> {
       ),
       bottomNavigationBar: AppBottomNavigation(
         currentIndex: 1,
+        isSignedIn: FirebaseAuth.instance.currentUser != null,
         onTap: (index) {
           if (index == 3) {
-            Navigator.push(
-              context,
-              MaterialPageRoute<void>(builder: (_) => const ProfilePage()),
-            );
+            if (FirebaseAuth.instance.currentUser == null) {
+              _promptSignIn();
+            } else {
+              Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const ProfilePage()));
+            }
           } else if (index == 0) {
-            showLogoutDialog(context);
+            if (FirebaseAuth.instance.currentUser == null) {
+              _promptSignIn();
+            } else {
+              showLogoutDialog(context);
+            }
+          } else if (index == 2 && FirebaseAuth.instance.currentUser == null) {
+            _promptSignIn();
           }
         },
       ),

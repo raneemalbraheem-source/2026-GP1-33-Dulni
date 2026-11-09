@@ -223,7 +223,7 @@ class _ProfilePageState extends State<ProfilePage> {
       await _authService.signOut();
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil<void>(
-        MaterialPageRoute<void>(builder: (_) => const LoginPage()),
+        MaterialPageRoute<void>(builder: (_) => const HomePage()),
         (_) => false,
       );
     } catch (_) {
