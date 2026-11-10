@@ -15,6 +15,10 @@ class SpeechRecognitionService {
 
   bool _initialized = false;
   String? _arabicLocaleId;
+  String? _englishLocaleId;
+
+  String? get arabicLocaleId => _arabicLocaleId;
+  String? get englishLocaleId => _englishLocaleId;
 
   SpeechStatusCallback? _onStatus;
   SpeechErrorCallback? _onError;
@@ -64,6 +68,30 @@ class SpeechRecognitionService {
       final id = locale.localeId.replaceAll('_', '-').toLowerCase();
       return id == 'ar' || id.startsWith('ar-');
     }).toList();
+
+    final englishLocales = locales.where((locale) {
+      final id = locale.localeId.replaceAll('_', '-').toLowerCase();
+      return id == 'en' || id.startsWith('en-');
+    }).toList();
+
+    final preferredEnglishLocale = englishLocales.where((locale) {
+      return locale.localeId.replaceAll('_', '-').toLowerCase() == 'en-us';
+    }).toList();
+
+    final britishEnglishLocale = englishLocales.where((locale) {
+      return locale.localeId.replaceAll('_', '-').toLowerCase() == 'en-gb';
+    }).toList();
+
+    if (preferredEnglishLocale.isNotEmpty) {
+      _englishLocaleId = preferredEnglishLocale.first.localeId;
+    } else if (britishEnglishLocale.isNotEmpty) {
+      _englishLocaleId = britishEnglishLocale.first.localeId;
+    } else if (englishLocales.isNotEmpty) {
+      _englishLocaleId = englishLocales.first.localeId;
+    }
+
+    debugPrint('STT Arabic locale: $_arabicLocaleId');
+    debugPrint('STT English locale: $_englishLocaleId');
 
     if (arabicLocales.isEmpty) {
       _onError?.call('لا توجد لغة عربية متاحة للتعرف على الكلام في الجهاز.');

@@ -9,7 +9,7 @@ import '../services/voice_feedback_service.dart';
 import '../services/auth_service.dart';
 import 'login_page.dart';
 
-enum _VoiceMode { commands, field }
+enum _VoiceMode { commands, field, review }
 
 enum _VoiceField { name, email, password, confirmPassword }
 
@@ -121,8 +121,6 @@ class _SignupPageState extends State<SignupPage> {
     }
     return null;
   }
-
-  String _lastSpokenValidationMessage = '';
 
   @override
   void dispose() {
@@ -243,14 +241,21 @@ class _SignupPageState extends State<SignupPage> {
   Future<void> _createAccount() async {
     if (!_formKey.currentState!.validate()) {
       if (!_nameIsValid) {
-        _nameFocusNode.requestFocus();
+        _activeVoiceField = _VoiceField.name;
       } else if (!_emailIsValid) {
-        _emailFocusNode.requestFocus();
+        _activeVoiceField = _VoiceField.email;
       } else if (!_passwordIsValid) {
-        _passwordFocusNode.requestFocus();
+        _activeVoiceField = _VoiceField.password;
       } else {
-        _confirmFocusNode.requestFocus();
+        _activeVoiceField = _VoiceField.confirmPassword;
       }
+
+      final error = _currentFieldError();
+
+      if (error != null) {
+        await _retryAfterValidationError(error);
+      }
+
       return;
     }
 
@@ -277,11 +282,25 @@ class _SignupPageState extends State<SignupPage> {
         (_) => false,
       );
     } on FirebaseAuthException catch (e) {
-      _showMessage(_authError(e.code));
+      final message = _authError(e.code);
+
+      _showMessage(message);
+
+      if (e.code == 'email-already-in-use') {
+        _activeVoiceField = _VoiceField.email;
+        await _startFieldCapture(_VoiceField.email);
+      } else {
+        await _speakAndResume(message);
+      }
     } catch (_) {
-      _showMessage('تعذر إنشاء الحساب. تحقق من الاتصال وحاول مجددًا.');
+      const message = 'تعذر إنشاء الحساب. تحقق من الاتصال وحاول مجددًا.';
+
+      _showMessage(message);
+      await _speakAndResume(message);
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -598,15 +617,10 @@ class _SignupPageState extends State<SignupPage> {
 
       await _voiceService.speak(
         'مرحبًا بك في صفحة إنشاء الحساب في تطبيق دُلّني. '
-        'سنقوم بإدخال البيانات بالترتيب التالي: '
+        'سنقوم بإدخال بياناتك بالترتيب التالي: '
         'الاسم الكامل، ثم البريد الإلكتروني، '
         'ثم كلمة المرور، ثم تأكيد كلمة المرور. '
-        'بعد الانتهاء من كل حقل، قل انتهى للعودة إلى قائمة الأوامر. '
-        'لإدخال الاسم قل: إدخال الاسم. '
-        'وللبريد الإلكتروني قل: إدخال البريد الإلكتروني. '
-        'ولكلمة المرور قل: إدخال كلمة المرور. '
-        'ولتأكيدها قل: إدخال تأكيد كلمة المرور. '
-        'ولإنشاء الحساب قل: إنشاء الحساب.',
+        'عندما تكون مستعدًا، قل: ابدأ إنشاء الحساب.',
       );
 
       if (!mounted) return;
@@ -630,6 +644,14 @@ class _SignupPageState extends State<SignupPage> {
 
     debugPrint('SIGNUP: Starting voice listening...');
 
+    final isEmailField =
+        _voiceMode == _VoiceMode.field &&
+        _activeVoiceField == _VoiceField.email;
+
+    final selectedLocale = isEmailField
+        ? _speechService.englishLocaleId
+        : _speechService.arabicLocaleId;
+
     final started = await _speechService.startListening(
       onResult: (recognizedText) {
         debugPrint('SIGNUP RECOGNIZED: "$recognizedText"');
@@ -639,9 +661,19 @@ class _SignupPageState extends State<SignupPage> {
       onError: (message) {
         debugPrint('SIGNUP SPEECH ERROR: $message');
       },
+      localeId: selectedLocale,
       useLastPartialOnStop: true,
     );
+    if (isEmailField && selectedLocale == null) {
+      const message =
+          'لغة التعرف على الكلام الإنجليزية غير متاحة في الجهاز. '
+          'يرجى تفعيل خدمة التعرف على الكلام باللغة الإنجليزية، '
+          'أو إدخال البريد الإلكتروني باستخدام لوحة المفاتيح.';
 
+      _showMessage(message);
+      await _voiceService.speak(message);
+      return;
+    }
     debugPrint('SIGNUP: Listening started = $started');
 
     if (!started && mounted && _voiceEnabled) {
@@ -675,16 +707,25 @@ class _SignupPageState extends State<SignupPage> {
 
   Future<void> _handleVoiceResult(String text) async {
     if (!mounted || _voiceProcessing) return;
+
     debugPrint('SIGNUP: Processing voice result: $text');
 
     _voiceProcessing = true;
     _voiceRestartPending = false;
 
     try {
-      if (_voiceMode == _VoiceMode.commands) {
-        await _handleVoiceCommand(text);
-      } else {
-        await _handleFieldInput(text);
+      switch (_voiceMode) {
+        case _VoiceMode.commands:
+          await _handleVoiceCommand(text);
+          break;
+
+        case _VoiceMode.field:
+          await _handleFieldInput(text);
+          break;
+
+        case _VoiceMode.review:
+          await _handleReviewCommand(text);
+          break;
       }
     } finally {
       _voiceProcessing = false;
@@ -711,43 +752,23 @@ class _SignupPageState extends State<SignupPage> {
 
     debugPrint('SIGNUP COMMAND: "$command"');
 
-    // تأكيد كلمة المرور أولًا حتى لا تختلط بأمر كلمة المرور.
-    if (command.contains('تاكيد كلمة المرور') ||
-        command.contains('تاكيد كلمه المرور') ||
-        command.contains('ادخال التاكيد') ||
-        command.contains('ادخل التاكيد') ||
-        command.contains('ادخال تاكيد') ||
-        command.contains('ادخل تاكيد')) {
-      await _startFieldCapture(_VoiceField.confirmPassword);
-      return;
-    }
-
-    if (command.contains('ادخال الاسم') ||
-        command.contains('ادخل الاسم') ||
-        command.contains('ادخال اسم') ||
-        command.contains('ادخل اسم')) {
+    if (command.contains('ابدا انشاء الحساب') ||
+        command.contains('ابدأ انشاء الحساب') ||
+        command.contains('ابدأ إنشاء الحساب')) {
       await _startFieldCapture(_VoiceField.name);
       return;
     }
 
-    if (command.contains('ادخال البريد') ||
-        command.contains('ادخل البريد') ||
-        command.contains('ادخال الايميل') ||
-        command.contains('ادخل الايميل')) {
-      await _startFieldCapture(_VoiceField.email);
-      return;
-    }
-
-    if (command.contains('ادخال كلمة المرور') ||
-        command.contains('ادخل كلمة المرور') ||
-        command.contains('ادخال كلمه المرور') ||
-        command.contains('ادخل كلمه المرور')) {
-      await _startFieldCapture(_VoiceField.password);
-      return;
-    }
-
     if (command.contains('انشاء الحساب') || command.contains('انشاء حساب')) {
-      await _stopVoiceListening();
+      if (_activeVoiceField != null) {
+        await _speakAndResume(
+          'لم تنتهِ من إدخال جميع البيانات بعد. '
+          'يرجى إكمال الحقول أولًا.',
+        );
+        return;
+      }
+
+      await _speechService.stopListening();
 
       if (mounted) {
         await _createAccount();
@@ -755,93 +776,228 @@ class _SignupPageState extends State<SignupPage> {
       return;
     }
 
-    debugPrint('SIGNUP: Command not recognized.');
-
     await _speakAndResume(
-      'لم أتعرف على الأمر. يمكنك قول إدخال الاسم، '
-      'أو إدخال البريد الإلكتروني، أو إدخال كلمة المرور، '
-      'أو إدخال تأكيد كلمة المرور، أو إنشاء الحساب.',
+      'لم أتعرف على الأمر. '
+      'عندما تكون مستعدًا، قل: ابدأ إنشاء الحساب.',
     );
   }
 
+  Future<void> _handleReviewCommand(String text) async {
+    final command = _normalizeArabic(text);
+
+    debugPrint('SIGNUP REVIEW COMMAND: "$command"');
+
+    // قراءة كلمة المرور عند طلب المستخدم فقط.
+    if (_activeVoiceField == _VoiceField.password &&
+        (command.contains('قراءه كلمة المرور') ||
+            command.contains('قراءه كلمه المرور') ||
+            command.contains('اقرا كلمة المرور') ||
+            command.contains('اقرا كلمه المرور') ||
+            command.contains('اسمع كلمة المرور'))) {
+      final password = _passwordController.text;
+
+      await _speakAndResume(
+        'كلمة المرور هي: $password. '
+        'إذا أردت اعتمادها قل تأكيد، '
+        'أو قل إعادة المحاولة لإدخالها من جديد، '
+        'أو قل قراءة كلمة المرور لسماعها مرة أخرى.',
+      );
+      return;
+    }
+
+    // إعادة المحاولة تمسح محتوى الحقل بالكامل.
+    if (command.contains('اعادة المحاولة') ||
+        command.contains('اعاده المحاوله') ||
+        command == 'اعادة' ||
+        command == 'اعد') {
+      final field = _activeVoiceField;
+
+      if (field != null) {
+        await _startFieldCapture(field);
+      }
+      return;
+    }
+
+    // اعتماد الإدخال والانتقال للحقل التالي.
+    if (command == 'تاكيد' ||
+        command == 'اكد' ||
+        command.contains('تاكيد الادخال') ||
+        command.contains('نعم تاكيد')) {
+      await _advanceAfterConfirmation();
+      return;
+    }
+
+    String options;
+
+    if (_activeVoiceField == _VoiceField.password) {
+      options =
+          'قل تأكيد لاعتماد كلمة المرور، '
+          'أو إعادة المحاولة لإدخالها من جديد، '
+          'أو قراءة كلمة المرور لسماعها.';
+    } else {
+      options =
+          'قل تأكيد لاعتماد الإدخال، '
+          'أو إعادة المحاولة لإدخاله من جديد.';
+    }
+
+    await _speakAndResume('لم أتعرف على اختيارك. $options');
+  }
+
+  Future<void> _advanceAfterConfirmation() async {
+    switch (_activeVoiceField) {
+      case _VoiceField.name:
+        await _startFieldCapture(_VoiceField.email);
+        break;
+
+      case _VoiceField.email:
+        await _startFieldCapture(_VoiceField.password);
+        break;
+
+      case _VoiceField.password:
+        await _startFieldCapture(_VoiceField.confirmPassword);
+        break;
+
+      case _VoiceField.confirmPassword:
+        _activeVoiceField = null;
+        _voiceMode = _VoiceMode.commands;
+
+        await _speakAndResume(
+          'تم تأكيد جميع البيانات بنجاح. '
+          'لإنشاء حسابك، قل: إنشاء الحساب.',
+        );
+        break;
+
+      case null:
+        await _speakAndResume('لا يوجد حقل ينتظر التأكيد حاليًا.');
+        break;
+    }
+  }
+
   Future<void> _startFieldCapture(_VoiceField field) async {
+    if (!mounted) return;
+
     _activeVoiceField = field;
     _voiceMode = _VoiceMode.field;
 
     switch (field) {
       case _VoiceField.name:
-        await _speakAndResume('أدخل الاسم الكامل الآن. بعد الانتهاء قل انتهى.');
+        _nameController.clear();
+        setState(() => _nameTouched = false);
+
+        await _speakAndResume(
+          'أنت الآن في حقل الاسم الكامل. '
+          'ابدأ بإدخال اسمك.',
+        );
         break;
 
       case _VoiceField.email:
+        _emailController.clear();
+        setState(() => _emailTouched = false);
+
         await _speakAndResume(
-          'أدخل البريد الإلكتروني. '
+          'أنت الآن في حقل البريد الإلكتروني. '
+          'أدخل بريدك الإلكتروني. '
           'يمكنك قول نقطة أو دوت لإدخال النقطة، '
           'وعند أو آت لإدخال علامة آت، '
           'وشرطة أو داش لإدخال الشرطة، '
-          'وشرطة سفلية أو أندر سكور لإدخال الشرطة السفلية. '
-          'بعد الانتهاء قل انتهى.',
+          'وشرطة سفلية أو أندر سكور لإدخال الشرطة السفلية.',
         );
         break;
 
       case _VoiceField.password:
+        _passwordController.clear();
+        setState(() => _passwordTouched = false);
+
         await _speakAndResume(
+          'أنت الآن في حقل كلمة المرور. '
           'أدخل كلمة المرور باستخدام الأحرف الإنجليزية والأرقام والرموز. '
-          'لن أكرر كلمة المرور بصوت مرتفع. '
-          'بعد الانتهاء قل انتهى.',
+          'لن أقرأ كلمة المرور تلقائيًا.',
         );
         break;
 
       case _VoiceField.confirmPassword:
+        _confirmController.clear();
+        setState(() => _confirmTouched = false);
+
         await _speakAndResume(
-          'أدخل كلمة المرور مرة أخرى للتأكيد. '
-          'لن أكررها بصوت مرتفع. بعد الانتهاء قل انتهى.',
+          'أنت الآن في حقل تأكيد كلمة المرور. '
+          'أعد إدخال كلمة المرور للتأكد من تطابقها. '
+          'لن أقرأ محتواها بصوت مرتفع.',
         );
         break;
     }
   }
 
   Future<void> _handleFieldInput(String text) async {
+    if (_activeVoiceField == null) return;
+
     debugPrint(
       'SIGNUP FIELD INPUT: "$text" | '
-      'Mode: $_voiceMode | Field: $_activeVoiceField',
+      'Field: $_activeVoiceField',
     );
-    final normalized = _normalizeArabic(text);
 
-    if (normalized == 'انتهى' || normalized == 'انته') {
-      await _finishFieldCapture();
-      return;
-    }
-
-    final endIndex = normalized.lastIndexOf('انتهى');
-
-    if (endIndex != -1) {
-      final remainingText = text.substring(0, endIndex).trim();
-
-      if (remainingText.isNotEmpty) {
-        _appendVoiceInput(remainingText);
-      }
-
-      await _finishFieldCapture();
-      return;
-    }
-
+    // استبدال محتوى الحقل بالنص الذي تم التعرف عليه.
     _appendVoiceInput(text);
 
-    await _announceCurrentFieldValidation();
+    // التحقق من صحة الإدخال.
+    final error = _currentFieldError();
+
+    if (error != null) {
+      await _retryAfterValidationError(error);
+      return;
+    }
+
+    // الإدخال صحيح، انتقل إلى وضع التأكيد.
+    _voiceMode = _VoiceMode.review;
+
+    switch (_activeVoiceField!) {
+      case _VoiceField.name:
+        await _speakAndResume(
+          'تم التقاط الاسم التالي: '
+          '${_nameController.text}. '
+          'قل تأكيد لاعتماد الاسم، '
+          'أو إعادة المحاولة لإدخاله من جديد.',
+        );
+        break;
+
+      case _VoiceField.email:
+        await _speakAndResume(
+          'تم التقاط البريد الإلكتروني التالي: '
+          '${_emailController.text}. '
+          'قل تأكيد لاعتماد البريد، '
+          'أو إعادة المحاولة لإدخاله من جديد.',
+        );
+        break;
+
+      case _VoiceField.password:
+        await _speakAndResume(
+          'تم التقاط كلمة المرور. '
+          'لن أقرأ محتواها تلقائيًا. '
+          'قل تأكيد لاعتمادها، '
+          'أو إعادة المحاولة لإدخالها من جديد، '
+          'أو قراءة كلمة المرور لسماعها.',
+        );
+        break;
+
+      case _VoiceField.confirmPassword:
+        await _speakAndResume(
+          'تم التقاط تأكيد كلمة المرور. '
+          'لن أقرأ محتواها حفاظًا على الخصوصية. '
+          'قل تأكيد لاعتماد الإدخال، '
+          'أو إعادة المحاولة لإدخاله من جديد.',
+        );
+        break;
+    }
   }
 
   void _appendVoiceInput(String recognizedText) {
-    debugPrint(
-      'SIGNUP APPEND INPUT: "$recognizedText" | Field: $_activeVoiceField',
-    );
     if (!mounted || _activeVoiceField == null) return;
 
     String value = recognizedText.trim();
 
     switch (_activeVoiceField!) {
       case _VoiceField.name:
-        _nameController.text = _joinVoiceText(_nameController.text, value);
+        _nameController.text = value;
 
         setState(() {
           _nameTouched = true;
@@ -851,11 +1007,7 @@ class _SignupPageState extends State<SignupPage> {
       case _VoiceField.email:
         value = _normalizeEmailVoiceInput(value);
 
-        _emailController.text = _joinVoiceText(_emailController.text, value);
-        debugPrint(
-          'SIGNUP FIELD VALUE: '
-          '${_activeVoiceField == _VoiceField.name ? _nameController.text : ''}',
-        );
+        _emailController.text = value;
 
         setState(() {
           _emailTouched = true;
@@ -863,7 +1015,9 @@ class _SignupPageState extends State<SignupPage> {
         break;
 
       case _VoiceField.password:
-        _passwordController.text += _normalizePasswordVoiceInput(value);
+        value = _normalizePasswordVoiceInput(value);
+
+        _passwordController.text = value;
 
         setState(() {
           _passwordTouched = true;
@@ -871,19 +1025,82 @@ class _SignupPageState extends State<SignupPage> {
         break;
 
       case _VoiceField.confirmPassword:
-        _confirmController.text += _normalizePasswordVoiceInput(value);
+        value = _normalizePasswordVoiceInput(value);
+
+        _confirmController.text = value;
 
         setState(() {
           _confirmTouched = true;
         });
         break;
     }
+
+    debugPrint('SIGNUP: Input assigned to $_activeVoiceField');
   }
 
-  String _joinVoiceText(String oldValue, String newValue) {
-    if (oldValue.trim().isEmpty) return newValue;
+  void _clearActiveVoiceField() {
+    if (!mounted || _activeVoiceField == null) return;
 
-    return '${oldValue.trim()} $newValue';
+    switch (_activeVoiceField!) {
+      case _VoiceField.name:
+        _nameController.clear();
+        setState(() => _nameTouched = false);
+        break;
+
+      case _VoiceField.email:
+        _emailController.clear();
+        setState(() => _emailTouched = false);
+        break;
+
+      case _VoiceField.password:
+        _passwordController.clear();
+        setState(() => _passwordTouched = false);
+        break;
+
+      case _VoiceField.confirmPassword:
+        _confirmController.clear();
+        setState(() => _confirmTouched = false);
+        break;
+    }
+  }
+
+  Future<void> _retryAfterValidationError(String error) async {
+    final field = _activeVoiceField;
+
+    if (field == null) return;
+
+    debugPrint('SIGNUP VALIDATION ERROR: $error | Field: $field');
+
+    // عرض الخطأ للمستخدم دون عرض محتوى الحقل.
+    _showMessage(error);
+
+    // حذف الإدخال غير الصحيح.
+    _clearActiveVoiceField();
+
+    // العودة إلى وضع إدخال البيانات.
+    _voiceMode = _VoiceMode.field;
+
+    await _speakAndResume(
+      '$error '
+      'تم حذف الإدخال السابق. '
+      'يرجى إعادة إدخال ${_fieldName(field)} من جديد.',
+    );
+  }
+
+  String _fieldName(_VoiceField field) {
+    switch (field) {
+      case _VoiceField.name:
+        return 'الاسم الكامل';
+
+      case _VoiceField.email:
+        return 'البريد الإلكتروني';
+
+      case _VoiceField.password:
+        return 'كلمة المرور';
+
+      case _VoiceField.confirmPassword:
+        return 'تأكيد كلمة المرور';
+    }
   }
 
   String _normalizeEmailVoiceInput(String text) {
@@ -916,19 +1133,6 @@ class _SignupPageState extends State<SignupPage> {
     // Remove spaces between dictated password segments.
     // The password itself is never spoken back.
     return text.replaceAll(RegExp(r'\s+'), '');
-  }
-
-  Future<void> _finishFieldCapture() async {
-    await _speechService.stopListening();
-
-    _activeVoiceField = null;
-    _voiceMode = _VoiceMode.commands;
-    _lastSpokenValidationMessage = '';
-
-    await _speakAndResume(
-      'تم إنهاء إدخال الحقل. '
-      'يمكنك الآن إعطاء الأمر التالي.',
-    );
   }
 
   String? _currentFieldError() {
@@ -1006,18 +1210,6 @@ class _SignupPageState extends State<SignupPage> {
       case null:
         return null;
     }
-  }
-
-  Future<void> _announceCurrentFieldValidation() async {
-    final error = _currentFieldError();
-
-    if (error == null || error == _lastSpokenValidationMessage) {
-      return;
-    }
-
-    _lastSpokenValidationMessage = error;
-
-    await _speakAndResume(error);
   }
 
   Future<void> _speakAndResume(String message) async {
