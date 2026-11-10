@@ -1,5 +1,6 @@
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
+import 'package:flutter/foundation.dart';
 
 typedef SpeechTextCallback = void Function(String text);
 typedef SpeechStatusCallback = void Function(String status);
@@ -18,24 +19,36 @@ class SpeechRecognitionService {
   SpeechStatusCallback? _onStatus;
   SpeechErrorCallback? _onError;
 
+  String _lastPartialText = '';
+  SpeechTextCallback? _activeResultCallback;
+  bool _useLastPartialOnStop = false;
+  bool _resultDelivered = false;
+
   bool get isListening => _speech.isListening;
 
   Future<bool> initialize({
     SpeechStatusCallback? onStatus,
     SpeechErrorCallback? onError,
   }) async {
-    // Keep the callbacks up to date.
     _onStatus = onStatus ?? _onStatus;
     _onError = onError ?? _onError;
 
-    // Initialize only once during the app session.
     if (_initialized) return true;
 
     final available = await _speech.initialize(
       onStatus: (status) {
+        if (status == 'done' || status == 'notListening') {
+          _deliverLastPartialResult();
+        }
+
         _onStatus?.call(status);
       },
       onError: (error) {
+        debugPrint('STT ERROR: ${error.errorMsg}');
+
+        // تسليم آخر نتيجة جزئية قبل معالجة الخطأ.
+        _deliverLastPartialResult();
+
         _onError?.call(error.errorMsg);
       },
     );
@@ -45,12 +58,10 @@ class SpeechRecognitionService {
       return false;
     }
 
-    // Get the speech recognition languages available on this device.
     final locales = await _speech.locales();
 
     final arabicLocales = locales.where((locale) {
       final id = locale.localeId.replaceAll('_', '-').toLowerCase();
-
       return id == 'ar' || id.startsWith('ar-');
     }).toList();
 
@@ -59,7 +70,6 @@ class SpeechRecognitionService {
       return false;
     }
 
-    // Prefer Saudi Arabic when available.
     final saudiLocale = arabicLocales.where((locale) {
       return locale.localeId.replaceAll('_', '-').toLowerCase() == 'ar-sa';
     }).toList();
@@ -72,37 +82,63 @@ class SpeechRecognitionService {
     return true;
   }
 
+  void _deliverLastPartialResult() {
+    if (!_useLastPartialOnStop ||
+        _resultDelivered ||
+        _lastPartialText.isEmpty ||
+        _activeResultCallback == null) {
+      return;
+    }
+
+    _resultDelivered = true;
+
+    debugPrint('STT FINAL FROM PARTIAL: "$_lastPartialText"');
+
+    _activeResultCallback!.call(_lastPartialText);
+  }
+
   Future<bool> startListening({
     required SpeechTextCallback onResult,
     SpeechStatusCallback? onStatus,
     SpeechErrorCallback? onError,
+    String? localeId,
+    bool useLastPartialOnStop = false,
   }) async {
     final ready = await initialize(onStatus: onStatus, onError: onError);
 
     if (!ready) return false;
+    if (_speech.isListening) return false;
 
-    if (_speech.isListening) {
-      return false;
-    }
+    _lastPartialText = '';
+    _activeResultCallback = onResult;
+    _useLastPartialOnStop = useLastPartialOnStop;
+    _resultDelivered = false;
 
     await _speech.listen(
       onResult: (SpeechRecognitionResult result) {
         final recognizedText = result.recognizedWords.trim();
 
-        if (result.finalResult && recognizedText.isNotEmpty) {
-          onResult(recognizedText);
+        debugPrint(
+          'STT RESULT: "$recognizedText" | '
+          'finalResult: ${result.finalResult}',
+        );
+
+        if (recognizedText.isEmpty) return;
+
+        if (result.finalResult) {
+          if (!_resultDelivered) {
+            _resultDelivered = true;
+            onResult(recognizedText);
+          }
+        } else if (useLastPartialOnStop) {
+          _lastPartialText = recognizedText;
         }
       },
       listenOptions: SpeechListenOptions(
-        localeId: _arabicLocaleId,
-
-        // Maximum listening duration.
+        localeId: localeId ?? _arabicLocaleId,
         listenFor: const Duration(seconds: 30),
-
-        // Wait longer when the user pauses between words.
         pauseFor: const Duration(seconds: 5),
-
-        partialResults: false,
+        partialResults: true,
         cancelOnError: true,
       ),
     );

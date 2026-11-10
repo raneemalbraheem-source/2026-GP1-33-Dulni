@@ -2,8 +2,16 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'dart:async';
+
+import '../services/speech_recognition_service.dart';
+import '../services/voice_feedback_service.dart';
 import '../services/auth_service.dart';
 import 'login_page.dart';
+
+enum _VoiceMode { commands, field }
+
+enum _VoiceField { name, email, password, confirmPassword }
 
 class SignupPage extends StatefulWidget {
   const SignupPage({super.key});
@@ -34,6 +42,11 @@ class _SignupPageState extends State<SignupPage> {
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();
   final _authService = AuthService();
+  final _speechService = SpeechRecognitionService.instance;
+  final _voiceService = VoiceFeedbackService.instance;
+
+  _VoiceMode _voiceMode = _VoiceMode.commands;
+  _VoiceField? _activeVoiceField;
 
   bool _hidePassword = true;
   bool _hideConfirm = true;
@@ -42,12 +55,14 @@ class _SignupPageState extends State<SignupPage> {
   bool _emailTouched = false;
   bool _passwordTouched = false;
   bool _confirmTouched = false;
+  bool _voiceEnabled = false;
+  bool _voiceBusy = false;
+  bool _voiceProcessing = false;
+  bool _voiceRestartPending = false;
 
   bool get _nameIsValid {
     final name = _nameController.text.trim();
-    return name.length >= 2 &&
-        name.length <= 20 &&
-        _namePattern.hasMatch(name);
+    return name.length >= 2 && name.length <= 20 && _namePattern.hasMatch(name);
   }
 
   bool get _emailIsValid {
@@ -67,7 +82,10 @@ class _SignupPageState extends State<SignupPage> {
         'حرف إنجليزي صغير واحد على الأقل (a–z)',
         RegExp(r'[a-z]').hasMatch(password),
       ),
-      _PasswordRule('رقم واحد على الأقل (0–9)', RegExp(r'\d').hasMatch(password)),
+      _PasswordRule(
+        'رقم واحد على الأقل (0–9)',
+        RegExp(r'\d').hasMatch(password),
+      ),
       _PasswordRule(
         'رمز خاص واحد على الأقل (مثل ! أو @ أو #)',
         RegExp(r'[^A-Za-z0-9\s]').hasMatch(password),
@@ -104,16 +122,25 @@ class _SignupPageState extends State<SignupPage> {
     return null;
   }
 
+  String _lastSpokenValidationMessage = '';
+
   @override
   void dispose() {
+    _voiceEnabled = false;
+
+    unawaited(_speechService.cancelListening());
+    unawaited(_voiceService.stop());
+
     _nameFocusNode.dispose();
     _emailFocusNode.dispose();
     _passwordFocusNode.dispose();
     _confirmFocusNode.dispose();
+
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmController.dispose();
+
     super.dispose();
   }
 
@@ -128,8 +155,8 @@ class _SignupPageState extends State<SignupPage> {
     final Color currentBorder = !touched
         ? colors.outline
         : isValid
-            ? _successColor
-            : colors.error;
+        ? _successColor
+        : colors.error;
 
     OutlineInputBorder outline(Color color, {double width = 1.2}) {
       return OutlineInputBorder(
@@ -173,18 +200,18 @@ class _SignupPageState extends State<SignupPage> {
             final color = !_passwordTouched
                 ? theme.colorScheme.onSurfaceVariant
                 : rule.isMet
-                    ? _successColor
-                    : theme.colorScheme.error;
+                ? _successColor
+                : theme.colorScheme.error;
             final icon = !_passwordTouched
                 ? Icons.radio_button_unchecked
                 : rule.isMet
-                    ? Icons.check_circle
-                    : Icons.cancel_outlined;
+                ? Icons.check_circle
+                : Icons.cancel_outlined;
             final spokenStatus = !_passwordTouched
                 ? 'لم يبدأ التحقق بعد'
                 : rule.isMet
-                    ? 'مستوفى'
-                    : 'غير مستوفى';
+                ? 'مستوفى'
+                : 'غير مستوفى';
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: Semantics(
@@ -193,18 +220,14 @@ class _SignupPageState extends State<SignupPage> {
                 label: '$spokenStatus: ${rule.label}',
                 child: Row(
                   children: [
-                    ExcludeSemantics(
-                      child: Icon(
-                        icon,
-                        color: color,
-                        size: 17,
-                      ),
-                    ),
+                    ExcludeSemantics(child: Icon(icon, color: color, size: 17)),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         rule.label,
-                        style: theme.textTheme.bodyMedium?.copyWith(color: color),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: color,
+                        ),
                       ),
                     ),
                   ],
@@ -250,17 +273,13 @@ class _SignupPageState extends State<SignupPage> {
 
       Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute<void>(
-          builder: (_) => const LoginPage(),
-        ),
+        MaterialPageRoute<void>(builder: (_) => const LoginPage()),
         (_) => false,
       );
     } on FirebaseAuthException catch (e) {
       _showMessage(_authError(e.code));
     } catch (_) {
-      _showMessage(
-        'تعذر إنشاء الحساب. تحقق من الاتصال وحاول مجددًا.',
-      );
+      _showMessage('تعذر إنشاء الحساب. تحقق من الاتصال وحاول مجددًا.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -377,7 +396,8 @@ class _SignupPageState extends State<SignupPage> {
                       ],
                       autofillHints: const [AutofillHints.email],
                       textInputAction: TextInputAction.next,
-                      onFieldSubmitted: (_) => _passwordFocusNode.requestFocus(),
+                      onFieldSubmitted: (_) =>
+                          _passwordFocusNode.requestFocus(),
                       keyboardType: TextInputType.emailAddress,
                       textDirection: TextDirection.ltr,
                       autovalidateMode: AutovalidateMode.onUserInteraction,
@@ -459,7 +479,8 @@ class _SignupPageState extends State<SignupPage> {
                       focusNode: _confirmFocusNode,
                       autofillHints: const [AutofillHints.newPassword],
                       textInputAction: TextInputAction.done,
-                      onFieldSubmitted: (_) => _loading ? null : _createAccount(),
+                      onFieldSubmitted: (_) =>
+                          _loading ? null : _createAccount(),
                       controller: _confirmController,
                       textDirection: TextDirection.ltr,
                       inputFormatters: [
@@ -515,7 +536,9 @@ class _SignupPageState extends State<SignupPage> {
                               child: SizedBox(
                                 height: 24,
                                 width: 24,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               ),
                             )
                           : const Text('إنشاء الحساب'),
@@ -530,11 +553,11 @@ class _SignupPageState extends State<SignupPage> {
                           onPressed: _loading
                               ? null
                               : () => Navigator.pushReplacement(
-                                    context,
-                                    MaterialPageRoute<void>(
-                                      builder: (_) => const LoginPage(),
-                                    ),
+                                  context,
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => const LoginPage(),
                                   ),
+                                ),
                           child: const Text('تسجيل الدخول'),
                         ),
                       ],
@@ -547,6 +570,479 @@ class _SignupPageState extends State<SignupPage> {
         ),
       ),
     );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startSignupVoiceGuide();
+    });
+  }
+
+  Future<void> _startSignupVoiceGuide() async {
+    try {
+      await _voiceService.initialize();
+
+      final ready = await _speechService.initialize(
+        onStatus: _handleSpeechStatus,
+        onError: (message) {
+          debugPrint('Speech error: $message');
+        },
+      );
+
+      if (!mounted || !ready) return;
+
+      _voiceEnabled = true;
+
+      await _voiceService.speak(
+        'مرحبًا بك في صفحة إنشاء الحساب في تطبيق دُلّني. '
+        'سنقوم بإدخال البيانات بالترتيب التالي: '
+        'الاسم الكامل، ثم البريد الإلكتروني، '
+        'ثم كلمة المرور، ثم تأكيد كلمة المرور. '
+        'بعد الانتهاء من كل حقل، قل انتهى للعودة إلى قائمة الأوامر. '
+        'لإدخال الاسم قل: إدخال الاسم. '
+        'وللبريد الإلكتروني قل: إدخال البريد الإلكتروني. '
+        'ولكلمة المرور قل: إدخال كلمة المرور. '
+        'ولتأكيدها قل: إدخال تأكيد كلمة المرور. '
+        'ولإنشاء الحساب قل: إنشاء الحساب.',
+      );
+
+      if (!mounted) return;
+
+      await _listenForVoice();
+    } catch (e) {
+      debugPrint('Signup voice initialization error: $e');
+    }
+  }
+
+  Future<void> _listenForVoice() async {
+    if (!mounted ||
+        !_voiceEnabled ||
+        _voiceBusy ||
+        _voiceProcessing ||
+        _speechService.isListening) {
+      return;
+    }
+
+    _voiceRestartPending = false;
+
+    debugPrint('SIGNUP: Starting voice listening...');
+
+    final started = await _speechService.startListening(
+      onResult: (recognizedText) {
+        debugPrint('SIGNUP RECOGNIZED: "$recognizedText"');
+        _handleVoiceResult(recognizedText);
+      },
+      onStatus: _handleSpeechStatus,
+      onError: (message) {
+        debugPrint('SIGNUP SPEECH ERROR: $message');
+      },
+      useLastPartialOnStop: true,
+    );
+
+    debugPrint('SIGNUP: Listening started = $started');
+
+    if (!started && mounted && _voiceEnabled) {
+      debugPrint('SIGNUP: Could not start listening.');
+    }
+  }
+
+  void _handleSpeechStatus(String status) {
+    debugPrint('SIGNUP SPEECH STATUS: $status');
+
+    if (!mounted || !_voiceEnabled || _voiceBusy) return;
+
+    if (status == 'done' || status == 'notListening') {
+      if (_voiceProcessing || _voiceRestartPending) return;
+
+      _voiceRestartPending = true;
+
+      Future.delayed(const Duration(milliseconds: 700), () {
+        if (!mounted ||
+            !_voiceEnabled ||
+            _voiceBusy ||
+            _voiceProcessing ||
+            !_voiceRestartPending) {
+          return;
+        }
+
+        _listenForVoice();
+      });
+    }
+  }
+
+  Future<void> _handleVoiceResult(String text) async {
+    if (!mounted || _voiceProcessing) return;
+    debugPrint('SIGNUP: Processing voice result: $text');
+
+    _voiceProcessing = true;
+    _voiceRestartPending = false;
+
+    try {
+      if (_voiceMode == _VoiceMode.commands) {
+        await _handleVoiceCommand(text);
+      } else {
+        await _handleFieldInput(text);
+      }
+    } finally {
+      _voiceProcessing = false;
+
+      if (mounted && _voiceEnabled && !_voiceBusy) {
+        await _listenForVoice();
+      }
+    }
+  }
+
+  String _normalizeArabic(String text) {
+    return text
+        .replaceAll(RegExp(r'[ًٌٍَُِّْـ]'), '')
+        .replaceAll('أ', 'ا')
+        .replaceAll('إ', 'ا')
+        .replaceAll('آ', 'ا')
+        .replaceAll('ى', 'ي')
+        .trim()
+        .toLowerCase();
+  }
+
+  Future<void> _handleVoiceCommand(String text) async {
+    final command = _normalizeArabic(text);
+
+    debugPrint('SIGNUP COMMAND: "$command"');
+
+    // تأكيد كلمة المرور أولًا حتى لا تختلط بأمر كلمة المرور.
+    if (command.contains('تاكيد كلمة المرور') ||
+        command.contains('تاكيد كلمه المرور') ||
+        command.contains('ادخال التاكيد') ||
+        command.contains('ادخل التاكيد') ||
+        command.contains('ادخال تاكيد') ||
+        command.contains('ادخل تاكيد')) {
+      await _startFieldCapture(_VoiceField.confirmPassword);
+      return;
+    }
+
+    if (command.contains('ادخال الاسم') ||
+        command.contains('ادخل الاسم') ||
+        command.contains('ادخال اسم') ||
+        command.contains('ادخل اسم')) {
+      await _startFieldCapture(_VoiceField.name);
+      return;
+    }
+
+    if (command.contains('ادخال البريد') ||
+        command.contains('ادخل البريد') ||
+        command.contains('ادخال الايميل') ||
+        command.contains('ادخل الايميل')) {
+      await _startFieldCapture(_VoiceField.email);
+      return;
+    }
+
+    if (command.contains('ادخال كلمة المرور') ||
+        command.contains('ادخل كلمة المرور') ||
+        command.contains('ادخال كلمه المرور') ||
+        command.contains('ادخل كلمه المرور')) {
+      await _startFieldCapture(_VoiceField.password);
+      return;
+    }
+
+    if (command.contains('انشاء الحساب') || command.contains('انشاء حساب')) {
+      await _stopVoiceListening();
+
+      if (mounted) {
+        await _createAccount();
+      }
+      return;
+    }
+
+    debugPrint('SIGNUP: Command not recognized.');
+
+    await _speakAndResume(
+      'لم أتعرف على الأمر. يمكنك قول إدخال الاسم، '
+      'أو إدخال البريد الإلكتروني، أو إدخال كلمة المرور، '
+      'أو إدخال تأكيد كلمة المرور، أو إنشاء الحساب.',
+    );
+  }
+
+  Future<void> _startFieldCapture(_VoiceField field) async {
+    _activeVoiceField = field;
+    _voiceMode = _VoiceMode.field;
+
+    switch (field) {
+      case _VoiceField.name:
+        await _speakAndResume('أدخل الاسم الكامل الآن. بعد الانتهاء قل انتهى.');
+        break;
+
+      case _VoiceField.email:
+        await _speakAndResume(
+          'أدخل البريد الإلكتروني. '
+          'يمكنك قول نقطة أو دوت لإدخال النقطة، '
+          'وعند أو آت لإدخال علامة آت، '
+          'وشرطة أو داش لإدخال الشرطة، '
+          'وشرطة سفلية أو أندر سكور لإدخال الشرطة السفلية. '
+          'بعد الانتهاء قل انتهى.',
+        );
+        break;
+
+      case _VoiceField.password:
+        await _speakAndResume(
+          'أدخل كلمة المرور باستخدام الأحرف الإنجليزية والأرقام والرموز. '
+          'لن أكرر كلمة المرور بصوت مرتفع. '
+          'بعد الانتهاء قل انتهى.',
+        );
+        break;
+
+      case _VoiceField.confirmPassword:
+        await _speakAndResume(
+          'أدخل كلمة المرور مرة أخرى للتأكيد. '
+          'لن أكررها بصوت مرتفع. بعد الانتهاء قل انتهى.',
+        );
+        break;
+    }
+  }
+
+  Future<void> _handleFieldInput(String text) async {
+    debugPrint(
+      'SIGNUP FIELD INPUT: "$text" | '
+      'Mode: $_voiceMode | Field: $_activeVoiceField',
+    );
+    final normalized = _normalizeArabic(text);
+
+    if (normalized == 'انتهى' || normalized == 'انته') {
+      await _finishFieldCapture();
+      return;
+    }
+
+    final endIndex = normalized.lastIndexOf('انتهى');
+
+    if (endIndex != -1) {
+      final remainingText = text.substring(0, endIndex).trim();
+
+      if (remainingText.isNotEmpty) {
+        _appendVoiceInput(remainingText);
+      }
+
+      await _finishFieldCapture();
+      return;
+    }
+
+    _appendVoiceInput(text);
+
+    await _announceCurrentFieldValidation();
+  }
+
+  void _appendVoiceInput(String recognizedText) {
+    debugPrint(
+      'SIGNUP APPEND INPUT: "$recognizedText" | Field: $_activeVoiceField',
+    );
+    if (!mounted || _activeVoiceField == null) return;
+
+    String value = recognizedText.trim();
+
+    switch (_activeVoiceField!) {
+      case _VoiceField.name:
+        _nameController.text = _joinVoiceText(_nameController.text, value);
+
+        setState(() {
+          _nameTouched = true;
+        });
+        break;
+
+      case _VoiceField.email:
+        value = _normalizeEmailVoiceInput(value);
+
+        _emailController.text = _joinVoiceText(_emailController.text, value);
+        debugPrint(
+          'SIGNUP FIELD VALUE: '
+          '${_activeVoiceField == _VoiceField.name ? _nameController.text : ''}',
+        );
+
+        setState(() {
+          _emailTouched = true;
+        });
+        break;
+
+      case _VoiceField.password:
+        _passwordController.text += _normalizePasswordVoiceInput(value);
+
+        setState(() {
+          _passwordTouched = true;
+        });
+        break;
+
+      case _VoiceField.confirmPassword:
+        _confirmController.text += _normalizePasswordVoiceInput(value);
+
+        setState(() {
+          _confirmTouched = true;
+        });
+        break;
+    }
+  }
+
+  String _joinVoiceText(String oldValue, String newValue) {
+    if (oldValue.trim().isEmpty) return newValue;
+
+    return '${oldValue.trim()} $newValue';
+  }
+
+  String _normalizeEmailVoiceInput(String text) {
+    String result = text.toLowerCase();
+
+    final replacements = <String, String>{
+      'نقطة': '.',
+      'دوت': '.',
+      'dot': '.',
+      'عند': '@',
+      'ات': '@',
+      'آت': '@',
+      'at': '@',
+      'شرطة سفلية': '_',
+      'اندر سكور': '_',
+      'underscore': '_',
+      'شرطة': '-',
+      'داش': '-',
+      'dash': '-',
+    };
+
+    replacements.forEach((word, symbol) {
+      result = result.replaceAll(word, symbol);
+    });
+
+    return result.replaceAll(RegExp(r'\s+'), '');
+  }
+
+  String _normalizePasswordVoiceInput(String text) {
+    // Remove spaces between dictated password segments.
+    // The password itself is never spoken back.
+    return text.replaceAll(RegExp(r'\s+'), '');
+  }
+
+  Future<void> _finishFieldCapture() async {
+    await _speechService.stopListening();
+
+    _activeVoiceField = null;
+    _voiceMode = _VoiceMode.commands;
+    _lastSpokenValidationMessage = '';
+
+    await _speakAndResume(
+      'تم إنهاء إدخال الحقل. '
+      'يمكنك الآن إعطاء الأمر التالي.',
+    );
+  }
+
+  String? _currentFieldError() {
+    switch (_activeVoiceField) {
+      case _VoiceField.name:
+        final name = _nameController.text.trim();
+
+        if (name.isEmpty) {
+          return 'لم يتم إدخال الاسم بعد.';
+        }
+
+        if (name.length < 2) {
+          return 'الاسم أقل من حرفين. يرجى إدخال حرفين على الأقل.';
+        }
+
+        if (name.length > 20) {
+          return 'الاسم تجاوز 20 حرفًا. يرجى اختصار الاسم.';
+        }
+
+        if (!_namePattern.hasMatch(name)) {
+          return 'الاسم يقبل الحروف والمسافات فقط.';
+        }
+
+        return null;
+
+      case _VoiceField.email:
+        final email = _emailController.text.trim();
+
+        if (email.isEmpty) {
+          return 'لم يتم إدخال البريد الإلكتروني بعد.';
+        }
+
+        if (!_emailPattern.hasMatch(email)) {
+          return 'صيغة البريد الإلكتروني غير صحيحة. تحقق من كتابة البريد.';
+        }
+
+        return null;
+
+      case _VoiceField.password:
+        final password = _passwordController.text;
+
+        if (password.isEmpty) {
+          return 'لم يتم إدخال كلمة المرور بعد.';
+        }
+
+        if (!_isAsciiPassword(password)) {
+          return 'استخدم الأحرف الإنجليزية والأرقام والرموز فقط.';
+        }
+
+        final unmetRules = _passwordRules
+            .where((rule) => !rule.isMet)
+            .map((rule) => rule.label)
+            .toList();
+
+        if (unmetRules.isNotEmpty) {
+          return 'كلمة المرور لا تحقق جميع الشروط. '
+              'الشروط المتبقية: ${unmetRules.join('، ')}.';
+        }
+
+        return null;
+
+      case _VoiceField.confirmPassword:
+        final confirmation = _confirmController.text;
+
+        if (confirmation.isEmpty) {
+          return 'لم يتم إدخال تأكيد كلمة المرور بعد.';
+        }
+
+        if (confirmation != _passwordController.text) {
+          return 'كلمتا المرور غير متطابقتين. يرجى إعادة إدخال التأكيد.';
+        }
+
+        return null;
+
+      case null:
+        return null;
+    }
+  }
+
+  Future<void> _announceCurrentFieldValidation() async {
+    final error = _currentFieldError();
+
+    if (error == null || error == _lastSpokenValidationMessage) {
+      return;
+    }
+
+    _lastSpokenValidationMessage = error;
+
+    await _speakAndResume(error);
+  }
+
+  Future<void> _speakAndResume(String message) async {
+    if (!mounted) return;
+
+    _voiceBusy = true;
+
+    try {
+      await _speechService.stopListening();
+      await _voiceService.speak(message);
+    } catch (e) {
+      debugPrint('Voice feedback error: $e');
+    } finally {
+      _voiceBusy = false;
+    }
+
+    if (mounted && _voiceEnabled && !_voiceProcessing) {
+      await _listenForVoice();
+    }
+  }
+
+  Future<void> _stopVoiceListening() async {
+    _voiceEnabled = false;
+    await _speechService.cancelListening();
+    await _voiceService.stop();
   }
 }
 
