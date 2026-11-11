@@ -8,6 +8,7 @@ import 'welcome_page.dart';
 import '../widgets/app_bottom_navigation.dart';
 import 'home_page.dart';
 import '../services/logout_helper.dart';
+import 'favorite_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -668,17 +669,29 @@ class _ProfilePageState extends State<ProfilePage> {
         bottomNavigationBar: AppBottomNavigation(
           currentIndex: 3,
           onTap: (index) {
-            if (index == 1) {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => HomePage()),
-              );
-            }
+          if (index == 1) {
+         Navigator.pushReplacement(
+         context,
+         MaterialPageRoute(
+        builder: (_) => const HomePage(),
+        ),
+       );
+       }
 
-            if (index == 0) {
-              showLogoutDialog(context);
-            }
-          },
+      else if (index == 2) {
+       Navigator.pushReplacement(
+       context,
+       MaterialPageRoute(
+        builder: (_) => const FavoritePage(),
+      ),
+      );
+      }
+
+    else if (index == 0) {
+     showLogoutDialog(context);
+    }
+  },
+
         ),
       ),
     );

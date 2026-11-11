@@ -18,7 +18,8 @@ import '../widgets/app_bottom_navigation.dart';
 import 'profile_page.dart';
 import 'login_page.dart';
 import 'signup_page.dart';
-
+import 'favorite_page.dart';
+import '../services/favorite_service.dart';
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -35,6 +36,7 @@ class _HomePageState extends State<HomePage> {
   final TextEditingController _startController = TextEditingController();
   final TextEditingController _destinationController = TextEditingController();
 
+  final FavoriteService _favoriteService = FavoriteService();
   GoogleMapController? _mapController;
   Timer? _searchDebounce;
   StreamSubscription<Position>? _positionSubscription;
@@ -869,7 +871,37 @@ class _HomePageState extends State<HomePage> {
     );
     if (shouldCancel == true) await _finishTrip(cancelled: true);
   }
+Future<void> _saveFavoriteLocation() async {
+  if (_selectedDestination == null) {
+    _showMessage(
+      'اختر وجهة أولاً',
+      isError: true,
+    );
+    return;
+  }
 
+  if (FirebaseAuth.instance.currentUser == null) {
+    await _promptSignIn();
+    return;
+  }
+
+  try {
+    await _favoriteService.addFavorite(
+      name: _destinationController.text.trim(),
+      latitude: _selectedDestination!.latitude,
+      longitude: _selectedDestination!.longitude,
+    );
+
+    _showMessage(
+      'تمت إضافة الموقع إلى المفضلة',
+    );
+  } catch (e) {
+    _showMessage(
+      'فشل حفظ الموقع في المفضلة',
+      isError: true,
+    );
+  }
+}
   @override
   void dispose() {
     _searchDebounce?.cancel();
@@ -1096,23 +1128,47 @@ class _HomePageState extends State<HomePage> {
                 left: 12,
                 right: 12,
                 bottom: _routePoints.isEmpty ? 20 : 108,
-                child: FilledButton.icon(
-                  onPressed: _isCalculatingRoute
-                      ? null
-                      : _calculateAndDrawRoute,
-                  icon: _isCalculatingRoute
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.alt_route),
-                  label: Text(
-                    _isCalculatingRoute
-                        ? 'جارٍ حساب المسار...'
-                        : 'احسب مسار المشاة',
-                  ),
+                child: Column(
+  mainAxisSize: MainAxisSize.min,
+  children: [
+
+    SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: _saveFavoriteLocation,
+        icon: const Icon(Icons.favorite),
+        label: const Text(
+          'حفظ في المفضلة',
+        ),
+      ),
+    ),
+
+    const SizedBox(height: 8),
+
+    SizedBox(
+      width: double.infinity,
+      child: FilledButton.icon(
+        onPressed: _isCalculatingRoute
+            ? null
+            : _calculateAndDrawRoute,
+        icon: _isCalculatingRoute
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
                 ),
+              )
+            : const Icon(Icons.alt_route),
+        label: Text(
+          _isCalculatingRoute
+              ? 'جارٍ حساب المسار...'
+              : 'احسب مسار المشاة',
+        ),
+      ),
+    ),
+  ],
+),
               ),
             if (_routePoints.isNotEmpty)
               Positioned(
@@ -1203,7 +1259,7 @@ class _HomePageState extends State<HomePage> {
       bottomNavigationBar: AppBottomNavigation(
         currentIndex: 1,
         isSignedIn: FirebaseAuth.instance.currentUser != null,
-        onTap: (index) {
+        onTap: (index) async{
           if (index == 3) {
             if (FirebaseAuth.instance.currentUser == null) {
               _promptSignIn();
@@ -1216,9 +1272,87 @@ class _HomePageState extends State<HomePage> {
             } else {
               showLogoutDialog(context);
             }
-          } else if (index == 2 && FirebaseAuth.instance.currentUser == null) {
-            _promptSignIn();
-          }
+          } else if (index == 2) {
+            if (FirebaseAuth.instance.currentUser == null) {
+                _promptSignIn();
+          } else {
+                  final result = await Navigator.push(
+                 context,
+                 MaterialPageRoute(
+                 builder: (_) => const FavoritePage(),
+      ),
+    );
+
+    if (result != null) {
+  final destination = LatLng(
+    result['latitude'],
+    result['longitude'],
+  );
+
+  setState(() {
+    _destinationController.text = result['name'];
+
+    _selectedDestination = destination;
+
+    _markers.removeWhere(
+      (marker) =>
+          marker.markerId.value == 'destination_marker',
+    );
+
+    _markers.add(
+      Marker(
+        markerId: const MarkerId('destination_marker'),
+        position: destination,
+        infoWindow: InfoWindow(
+          title: result['name'],
+        ),
+        icon: BitmapDescriptor.defaultMarkerWithHue(
+          BitmapDescriptor.hueRed,
+        ),
+      ),
+    );
+  });
+
+  await _mapController?.animateCamera(
+    CameraUpdate.newLatLngZoom(
+      destination,
+      16,
+    ),
+  );
+}
+  }
+  Future<void> _saveFavoriteLocation() async {
+  if (_selectedDestination == null) {
+    _showMessage(
+      'اختر وجهة أولاً',
+      isError: true,
+    );
+    return;
+  }
+
+  if (FirebaseAuth.instance.currentUser == null) {
+    await _promptSignIn();
+    return;
+  }
+
+  try {
+    await _favoriteService.addFavorite(
+      name: _destinationController.text.trim(),
+      latitude: _selectedDestination!.latitude,
+      longitude: _selectedDestination!.longitude,
+    );
+
+    _showMessage(
+      'تمت إضافة الموقع إلى المفضلة',
+    );
+  } catch (e) {
+    _showMessage(
+      'فشلت إضافة الموقع إلى المفضلة',
+      isError: true,
+    );
+  }
+}
+}
         },
       ),
     );
