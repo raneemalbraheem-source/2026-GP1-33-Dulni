@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/semantics.dart';
 
 import 'dart:async';
 
@@ -9,7 +10,7 @@ import '../services/voice_feedback_service.dart';
 import '../services/auth_service.dart';
 import 'login_page.dart';
 
-enum _VoiceMode { commands, field, review }
+enum _VoiceMode { manual, commands, field, review }
 
 enum _VoiceField { name, email, password, confirmPassword }
 
@@ -45,7 +46,7 @@ class _SignupPageState extends State<SignupPage> {
   final _speechService = SpeechRecognitionService.instance;
   final _voiceService = VoiceFeedbackService.instance;
 
-  _VoiceMode _voiceMode = _VoiceMode.commands;
+  _VoiceMode _voiceMode = _VoiceMode.manual;
   _VoiceField? _activeVoiceField;
 
   bool _hidePassword = true;
@@ -59,6 +60,8 @@ class _SignupPageState extends State<SignupPage> {
   bool _voiceBusy = false;
   bool _voiceProcessing = false;
   bool _voiceRestartPending = false;
+  bool _awaitingVoiceChoice = false;
+  bool _screenReaderActive = false;
 
   bool get _nameIsValid {
     final name = _nameController.text.trim();
@@ -268,6 +271,10 @@ class _SignupPageState extends State<SignupPage> {
         password: _passwordController.text,
       );
 
+      // Ask Android Autofill / the active password manager to save the
+      // newly created credential after Firebase confirms account creation.
+      TextInput.finishAutofillContext(shouldSave: true);
+
       if (!mounted) return;
 
       // Firebase signs in the newly created user automatically.
@@ -286,7 +293,7 @@ class _SignupPageState extends State<SignupPage> {
 
       _showMessage(message);
 
-      if (e.code == 'email-already-in-use') {
+      if (e.code == 'email-already-in-use' && _voiceEnabled) {
         _activeVoiceField = _VoiceField.email;
         await _startFieldCapture(_VoiceField.email);
       } else {
@@ -344,244 +351,270 @@ class _SignupPageState extends State<SignupPage> {
             padding: const EdgeInsets.all(24),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 520),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const ExcludeSemantics(
-                      child: Icon(Icons.person_add_alt_1_outlined, size: 72),
-                    ),
-                    const SizedBox(height: 16),
-                    Semantics(
-                      header: true,
-                      child: Text(
-                        'رحلة أسهل مع دُلّني',
-                        style: theme.textTheme.headlineMedium,
+              child: AutofillGroup(
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const ExcludeSemantics(
+                        child: Icon(Icons.person_add_alt_1_outlined, size: 72),
+                      ),
+                      const SizedBox(height: 16),
+                      Semantics(
+                        header: true,
+                        excludeSemantics: true,
+                        label: _voiceEnabled
+                            ? 'رحلة أسهل مع دلّني. صفحة إنشاء الحساب. '
+                                  'يمكنك قول الانتقال إلى الإدخال اليدوي في أي وقت.'
+                            : 'رحلة أسهل مع دُلّني. صفحة إنشاء الحساب. '
+                                  'يمكنك إدخال بياناتك يدويًا باستخدام لوحة المفاتيح '
+                                  'أو قارئ الشاشة. هل ترغب في استخدام الإدخال الصوتي؟ '
+                                  'لتفعيله، استخدم الإجراء المخصص تفعيل الإدخال الصوتي.',
+                        customSemanticsActions: _voiceEnabled
+                            ? <CustomSemanticsAction, VoidCallback>{
+                                CustomSemanticsAction(
+                                  label: 'الانتقال إلى الإدخال اليدوي',
+                                ): () =>
+                                    unawaited(_switchToManual()),
+                              }
+                            : <CustomSemanticsAction, VoidCallback>{
+                                CustomSemanticsAction(
+                                  label: 'تفعيل الإدخال الصوتي',
+                                ): () =>
+                                    unawaited(_enableVoiceMode()),
+                              },
+                        child: Text(
+                          'رحلة أسهل مع دُلّني',
+                          style: theme.textTheme.headlineMedium,
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'يمكنك إنشاء حساب لتخصيص تجربة الاستخدام.',
+                        style: theme.textTheme.bodyLarge,
                         textAlign: TextAlign.center,
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'يمكن إنشاء حساب لتخصيص تجربة الاستخدام.',
-                      style: theme.textTheme.bodyLarge,
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 28),
-                    TextFormField(
-                      focusNode: _nameFocusNode,
-                      controller: _nameController,
-                      autofillHints: const [AutofillHints.name],
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                          _allowedNameCharacters,
+                      const SizedBox(height: 28),
+                      TextFormField(
+                        focusNode: _nameFocusNode,
+                        controller: _nameController,
+                        autofillHints: const [AutofillHints.name],
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            _allowedNameCharacters,
+                          ),
+                        ],
+                        textInputAction: TextInputAction.next,
+                        onFieldSubmitted: (_) => _emailFocusNode.requestFocus(),
+                        textCapitalization: TextCapitalization.words,
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        decoration: _fieldDecoration(
+                          labelText: 'الاسم الكامل',
+                          prefixIcon: Icons.person_outline,
+                          touched: _nameTouched,
+                          isValid: _nameIsValid,
                         ),
-                      ],
-                      textInputAction: TextInputAction.next,
-                      onFieldSubmitted: (_) => _emailFocusNode.requestFocus(),
-                      textCapitalization: TextCapitalization.words,
-                      autovalidateMode: AutovalidateMode.onUserInteraction,
-                      decoration: _fieldDecoration(
-                        labelText: 'الاسم الكامل',
-                        prefixIcon: Icons.person_outline,
-                        touched: _nameTouched,
-                        isValid: _nameIsValid,
+                        onChanged: (_) {
+                          setState(() => _nameTouched = true);
+                        },
+                        validator: (value) {
+                          final name = value?.trim() ?? '';
+                          if (name.isEmpty) {
+                            return 'أدخل الاسم الكامل.';
+                          }
+                          if (!_namePattern.hasMatch(name)) {
+                            return 'الاسم يقبل الحروف والمسافات فقط.';
+                          }
+                          if (name.length < 2 || name.length > 20) {
+                            return 'الاسم يجب أن يكون بين حرفين و20 حرفًا.';
+                          }
+                          return null;
+                        },
                       ),
-                      onChanged: (_) {
-                        setState(() => _nameTouched = true);
-                      },
-                      validator: (value) {
-                        final name = value?.trim() ?? '';
-                        if (name.isEmpty) {
-                          return 'أدخل الاسم الكامل.';
-                        }
-                        if (!_namePattern.hasMatch(name)) {
-                          return 'الاسم يقبل الحروف والمسافات فقط.';
-                        }
-                        if (name.length < 2 || name.length > 20) {
-                          return 'الاسم يجب أن يكون بين حرفين و20 حرفًا.';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      focusNode: _emailFocusNode,
-                      controller: _emailController,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                          _englishPrintableCharacters,
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        focusNode: _emailFocusNode,
+                        controller: _emailController,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            _englishPrintableCharacters,
+                          ),
+                        ],
+                        autofillHints: const [AutofillHints.newUsername],
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        textInputAction: TextInputAction.next,
+                        onFieldSubmitted: (_) =>
+                            _passwordFocusNode.requestFocus(),
+                        keyboardType: TextInputType.emailAddress,
+                        textDirection: TextDirection.ltr,
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        decoration: _fieldDecoration(
+                          labelText: 'البريد الإلكتروني',
+                          prefixIcon: Icons.email_outlined,
+                          touched: _emailTouched,
+                          isValid: _emailIsValid,
                         ),
-                      ],
-                      autofillHints: const [AutofillHints.email],
-                      textInputAction: TextInputAction.next,
-                      onFieldSubmitted: (_) =>
-                          _passwordFocusNode.requestFocus(),
-                      keyboardType: TextInputType.emailAddress,
-                      textDirection: TextDirection.ltr,
-                      autovalidateMode: AutovalidateMode.onUserInteraction,
-                      decoration: _fieldDecoration(
-                        labelText: 'البريد الإلكتروني',
-                        prefixIcon: Icons.email_outlined,
-                        touched: _emailTouched,
-                        isValid: _emailIsValid,
+                        onChanged: (_) {
+                          setState(() => _emailTouched = true);
+                        },
+                        validator: (value) {
+                          final email = value?.trim() ?? '';
+                          if (email.isEmpty) {
+                            return 'أدخل البريد الإلكتروني.';
+                          }
+                          if (!_emailPattern.hasMatch(email)) {
+                            return 'أدخل بريدًا إلكترونيًا صحيحًا.';
+                          }
+                          return null;
+                        },
                       ),
-                      onChanged: (_) {
-                        setState(() => _emailTouched = true);
-                      },
-                      validator: (value) {
-                        final email = value?.trim() ?? '';
-                        if (email.isEmpty) {
-                          return 'أدخل البريد الإلكتروني.';
-                        }
-                        if (!_emailPattern.hasMatch(email)) {
-                          return 'أدخل بريدًا إلكترونيًا صحيحًا.';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      focusNode: _passwordFocusNode,
-                      controller: _passwordController,
-                      textDirection: TextDirection.ltr,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                          _englishPrintableCharacters,
-                        ),
-                      ],
-                      autofillHints: const [AutofillHints.newPassword],
-                      textInputAction: TextInputAction.next,
-                      onFieldSubmitted: (_) => _confirmFocusNode.requestFocus(),
-                      obscureText: _hidePassword,
-                      enableSuggestions: false,
-                      autocorrect: false,
-                      autovalidateMode: AutovalidateMode.onUserInteraction,
-                      decoration: _fieldDecoration(
-                        labelText: 'كلمة المرور',
-                        prefixIcon: Icons.lock_outline,
-                        touched: _passwordTouched,
-                        isValid: _passwordIsValid,
-                        suffixIcon: IconButton(
-                          tooltip: _hidePassword
-                              ? 'إظهار كلمة المرور'
-                              : 'إخفاء كلمة المرور',
-                          onPressed: () {
-                            setState(() => _hidePassword = !_hidePassword);
-                          },
-                          icon: Icon(
-                            _hidePassword
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        focusNode: _passwordFocusNode,
+                        controller: _passwordController,
+                        textDirection: TextDirection.ltr,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            _englishPrintableCharacters,
+                          ),
+                        ],
+                        autofillHints: const [AutofillHints.newPassword],
+                        textInputAction: TextInputAction.next,
+                        onFieldSubmitted: (_) =>
+                            _confirmFocusNode.requestFocus(),
+                        obscureText: _hidePassword,
+                        enableSuggestions: false,
+                        autocorrect: false,
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        decoration: _fieldDecoration(
+                          labelText: 'كلمة المرور',
+                          prefixIcon: Icons.lock_outline,
+                          touched: _passwordTouched,
+                          isValid: _passwordIsValid,
+                          suffixIcon: IconButton(
+                            tooltip: _hidePassword
+                                ? 'إظهار كلمة المرور'
+                                : 'إخفاء كلمة المرور',
+                            onPressed: () {
+                              setState(() => _hidePassword = !_hidePassword);
+                            },
+                            icon: Icon(
+                              _hidePassword
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                            ),
                           ),
                         ),
+                        onChanged: (_) {
+                          setState(() => _passwordTouched = true);
+                        },
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'أدخل كلمة المرور.';
+                          }
+                          if (!_isAsciiPassword(value)) {
+                            return 'استخدم أحرفًا إنجليزية ورموزًا فقط.';
+                          }
+                          if (!_passwordIsValid) {
+                            return 'كلمة المرور لا تحقق جميع الشروط.';
+                          }
+                          return null;
+                        },
                       ),
-                      onChanged: (_) {
-                        setState(() => _passwordTouched = true);
-                      },
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'أدخل كلمة المرور.';
-                        }
-                        if (!_isAsciiPassword(value)) {
-                          return 'استخدم أحرفًا إنجليزية ورموزًا فقط.';
-                        }
-                        if (!_passwordIsValid) {
-                          return 'كلمة المرور لا تحقق جميع الشروط.';
-                        }
-                        return null;
-                      },
-                    ),
-                    _buildPasswordRules(),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      focusNode: _confirmFocusNode,
-                      autofillHints: const [AutofillHints.newPassword],
-                      textInputAction: TextInputAction.done,
-                      onFieldSubmitted: (_) =>
-                          _loading ? null : _createAccount(),
-                      controller: _confirmController,
-                      textDirection: TextDirection.ltr,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                          _englishPrintableCharacters,
-                        ),
-                      ],
-                      obscureText: _hideConfirm,
-                      enableSuggestions: false,
-                      autocorrect: false,
-                      autovalidateMode: AutovalidateMode.disabled,
-                      forceErrorText: _confirmErrorText,
-                      decoration: _fieldDecoration(
-                        labelText: 'تأكيد كلمة المرور',
-                        prefixIcon: Icons.lock_reset_outlined,
-                        touched: _confirmTouched,
-                        isValid: _confirmIsValid,
-                        suffixIcon: IconButton(
-                          tooltip: _hideConfirm
-                              ? 'إظهار كلمة المرور'
-                              : 'إخفاء كلمة المرور',
-                          onPressed: () {
-                            setState(() => _hideConfirm = !_hideConfirm);
-                          },
-                          icon: Icon(
-                            _hideConfirm
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
+                      _buildPasswordRules(),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        focusNode: _confirmFocusNode,
+                        autofillHints: const [AutofillHints.newPassword],
+                        textInputAction: TextInputAction.done,
+                        onFieldSubmitted: (_) =>
+                            _loading ? null : _createAccount(),
+                        controller: _confirmController,
+                        textDirection: TextDirection.ltr,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            _englishPrintableCharacters,
+                          ),
+                        ],
+                        obscureText: _hideConfirm,
+                        enableSuggestions: false,
+                        autocorrect: false,
+                        autovalidateMode: AutovalidateMode.disabled,
+                        forceErrorText: _confirmErrorText,
+                        decoration: _fieldDecoration(
+                          labelText: 'تأكيد كلمة المرور',
+                          prefixIcon: Icons.lock_reset_outlined,
+                          touched: _confirmTouched,
+                          isValid: _confirmIsValid,
+                          suffixIcon: IconButton(
+                            tooltip: _hideConfirm
+                                ? 'إظهار كلمة المرور'
+                                : 'إخفاء كلمة المرور',
+                            onPressed: () {
+                              setState(() => _hideConfirm = !_hideConfirm);
+                            },
+                            icon: Icon(
+                              _hideConfirm
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                            ),
                           ),
                         ),
+                        onChanged: (_) {
+                          setState(() => _confirmTouched = true);
+                        },
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'أكد كلمة المرور.';
+                          }
+                          if (value != _passwordController.text) {
+                            return 'كلمتا المرور غير متطابقتين.';
+                          }
+                          return null;
+                        },
                       ),
-                      onChanged: (_) {
-                        setState(() => _confirmTouched = true);
-                      },
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'أكد كلمة المرور.';
-                        }
-                        if (value != _passwordController.text) {
-                          return 'كلمتا المرور غير متطابقتين.';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 24),
-                    ElevatedButton(
-                      onPressed: _loading ? null : _createAccount,
-                      child: _loading
-                          ? Semantics(
-                              excludeSemantics: true,
-                              liveRegion: true,
-                              label: 'جارٍ إنشاء الحساب',
-                              child: SizedBox(
-                                height: 24,
-                                width: 24,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
-                            )
-                          : const Text('إنشاء الحساب'),
-                    ),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        const Text('هل لديك حساب بالفعل؟'),
-                        TextButton(
-                          onPressed: _loading
-                              ? null
-                              : () => Navigator.pushReplacement(
-                                  context,
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => const LoginPage(),
+                      const SizedBox(height: 24),
+                      ElevatedButton(
+                        onPressed: _loading ? null : _createAccount,
+                        child: _loading
+                            ? Semantics(
+                                excludeSemantics: true,
+                                liveRegion: true,
+                                label: 'جارٍ إنشاء الحساب',
+                                child: SizedBox(
+                                  height: 24,
+                                  width: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
                                   ),
                                 ),
-                          child: const Text('تسجيل الدخول'),
-                        ),
-                      ],
-                    ),
-                  ],
+                              )
+                            : const Text('إنشاء الحساب'),
+                      ),
+                      const SizedBox(height: 16),
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          const Text('هل لديك حساب بالفعل؟'),
+                          TextButton(
+                            onPressed: _loading
+                                ? null
+                                : () => Navigator.pushReplacement(
+                                    context,
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => const LoginPage(),
+                                    ),
+                                  ),
+                            child: const Text('تسجيل الدخول'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -601,6 +634,23 @@ class _SignupPageState extends State<SignupPage> {
   }
 
   Future<void> _startSignupVoiceGuide() async {
+    if (!mounted) return;
+
+    // When accessibility navigation is active, leave the page in manual
+    // mode so the app's TTS does not compete with TalkBack or another reader.
+    _screenReaderActive =
+        MediaQuery.maybeOf(context)?.accessibleNavigation ?? false;
+
+    if (_screenReaderActive) {
+      if (mounted) {
+        setState(() {
+          _voiceEnabled = false;
+          _voiceMode = _VoiceMode.manual;
+        });
+      }
+      return;
+    }
+
     try {
       await _voiceService.initialize();
 
@@ -613,21 +663,26 @@ class _SignupPageState extends State<SignupPage> {
 
       if (!mounted || !ready) return;
 
-      _voiceEnabled = true;
+      setState(() {
+        _voiceEnabled = true;
+        _voiceMode = _VoiceMode.commands;
+        _awaitingVoiceChoice = true;
+      });
 
-      await _voiceService.speak(
+      await _speakAndResume(
         'مرحبًا بك في صفحة إنشاء الحساب في تطبيق دُلّني. '
-        'سنقوم بإدخال بياناتك بالترتيب التالي: '
-        'الاسم الكامل، ثم البريد الإلكتروني، '
-        'ثم كلمة المرور، ثم تأكيد كلمة المرور. '
-        'عندما تكون مستعدًا، قل: ابدأ إنشاء الحساب.',
+        'يمكنك إدخال بياناتك صوتيًا أو يدويًا باستخدام لوحة المفاتيح '
+        'أو قارئ الشاشة. هل ترغب في استخدام الإدخال الصوتي؟ '
+        'قل نعم لاستخدامه، أو لا للانتقال إلى الإدخال اليدوي.',
       );
-
-      if (!mounted) return;
-
-      await _listenForVoice();
     } catch (e) {
       debugPrint('Signup voice initialization error: $e');
+      if (mounted) {
+        setState(() {
+          _voiceEnabled = false;
+          _voiceMode = _VoiceMode.manual;
+        });
+      }
     }
   }
 
@@ -652,6 +707,29 @@ class _SignupPageState extends State<SignupPage> {
         ? _speechService.englishLocaleId
         : _speechService.arabicLocaleId;
 
+    if (isEmailField && selectedLocale == null) {
+      const message =
+          'لغة التعرف على الكلام الإنجليزية غير متاحة في الجهاز. '
+          'يرجى تفعيل خدمة التعرف على الكلام باللغة الإنجليزية، '
+          'أو الانتقال إلى الإدخال اليدوي لإدخال البريد الإلكتروني.';
+
+      _showMessage(message);
+      final screenReaderActive =
+          MediaQuery.maybeOf(context)?.accessibleNavigation ??
+          _screenReaderActive;
+      if (screenReaderActive) {
+        SemanticsService.sendAnnouncement(
+          View.of(context),
+          message,
+          Directionality.of(context),
+        );
+      } else {
+        await _voiceService.speak(message);
+      }
+      await _switchToManual();
+      return;
+    }
+
     final started = await _speechService.startListening(
       onResult: (recognizedText) {
         debugPrint('SIGNUP RECOGNIZED: "$recognizedText"');
@@ -664,16 +742,6 @@ class _SignupPageState extends State<SignupPage> {
       localeId: selectedLocale,
       useLastPartialOnStop: true,
     );
-    if (isEmailField && selectedLocale == null) {
-      const message =
-          'لغة التعرف على الكلام الإنجليزية غير متاحة في الجهاز. '
-          'يرجى تفعيل خدمة التعرف على الكلام باللغة الإنجليزية، '
-          'أو إدخال البريد الإلكتروني باستخدام لوحة المفاتيح.';
-
-      _showMessage(message);
-      await _voiceService.speak(message);
-      return;
-    }
     debugPrint('SIGNUP: Listening started = $started');
 
     if (!started && mounted && _voiceEnabled) {
@@ -715,6 +783,9 @@ class _SignupPageState extends State<SignupPage> {
 
     try {
       switch (_voiceMode) {
+        case _VoiceMode.manual:
+          return;
+
         case _VoiceMode.commands:
           await _handleVoiceCommand(text);
           break;
@@ -752,10 +823,53 @@ class _SignupPageState extends State<SignupPage> {
 
     debugPrint('SIGNUP COMMAND: "$command"');
 
-    if (command.contains('ابدا انشاء الحساب') ||
-        command.contains('ابدأ انشاء الحساب') ||
-        command.contains('ابدأ إنشاء الحساب')) {
-      await _startFieldCapture(_VoiceField.name);
+    if (_isSwitchToManualCommand(command)) {
+      await _switchToManual();
+      return;
+    }
+
+    // Initial choice: the user can choose voice or manual entry.
+    if (_awaitingVoiceChoice) {
+      if (command == 'نعم' ||
+          command == 'اي' ||
+          command == 'ايوه' ||
+          command == 'ابغى' ||
+          command == 'ارغب') {
+        _awaitingVoiceChoice = false;
+        await _speakAndResume(
+          'سنُدخل البيانات بالترتيب التالي: الاسم الكامل، '
+          'ثم البريد الإلكتروني، ثم كلمة المرور، ثم تأكيد كلمة المرور. '
+          'عندما تكون مستعدًا، قل: ابدأ إنشاء الحساب.',
+        );
+        return;
+      }
+
+      if (command == 'لا' ||
+          command.contains('ادخال يدوي') ||
+          command.contains('استخدام لوحة المفاتيح')) {
+        _awaitingVoiceChoice = false;
+        await _switchToManual();
+        return;
+      }
+
+      await _speakAndResume(
+        'لم أفهم اختيارك. قل نعم لاستخدام الإدخال الصوتي، '
+        'أو لا لاستخدام الإدخال اليدوي.',
+      );
+      return;
+    }
+
+    if (command.contains('ابدا انشاء الحساب')) {
+      final nextField = _firstIncompleteVoiceField();
+      if (nextField != null) {
+        await _startFieldCapture(nextField);
+      } else {
+        _activeVoiceField = null;
+        await _speakAndResume(
+          'جميع الحقول تحتوي على بيانات صحيحة. '
+          'قل إنشاء الحساب للمتابعة.',
+        );
+      }
       return;
     }
 
@@ -782,43 +896,164 @@ class _SignupPageState extends State<SignupPage> {
     );
   }
 
+  bool _isSwitchToManualCommand(String normalizedCommand) {
+    return normalizedCommand.contains('الانتقال الى الادخال اليدوي') ||
+        normalizedCommand.contains('انتقال الى الادخال اليدوي') ||
+        normalizedCommand.contains('switch to manual input');
+  }
+
+  Future<void> _switchToManual() async {
+    if (!mounted) return;
+
+    final fieldToFocus = _activeVoiceField;
+    _voiceRestartPending = false;
+    _awaitingVoiceChoice = false;
+    _voiceEnabled = false;
+    _voiceBusy = true;
+
+    await _speechService.cancelListening();
+    await _voiceService.stop();
+
+    if (!mounted) return;
+
+    setState(() {
+      _voiceMode = _VoiceMode.manual;
+      _voiceEnabled = false;
+      _voiceBusy = false;
+    });
+
+    // Keep all controllers and their values intact.
+    final focusNode = _focusNodeForField(
+      fieldToFocus ?? _firstIncompleteVoiceField(),
+    );
+    if (focusNode != null) {
+      focusNode.requestFocus();
+    }
+
+    final screenReaderActive =
+        MediaQuery.maybeOf(context)?.accessibleNavigation ??
+        _screenReaderActive;
+    if (screenReaderActive) {
+      SemanticsService.sendAnnouncement(
+        View.of(context),
+        'تم الانتقال إلى الإدخال اليدوي. جميع البيانات المدخلة محفوظة.',
+        Directionality.of(context),
+      );
+    }
+  }
+
+  FocusNode? _focusNodeForField(_VoiceField? field) {
+    switch (field) {
+      case _VoiceField.name:
+        return _nameFocusNode;
+      case _VoiceField.email:
+        return _emailFocusNode;
+      case _VoiceField.password:
+        return _passwordFocusNode;
+      case _VoiceField.confirmPassword:
+        return _confirmFocusNode;
+      case null:
+        return null;
+    }
+  }
+
+  _VoiceField? _firstIncompleteVoiceField() {
+    final previousField = _activeVoiceField;
+    for (final field in _VoiceField.values) {
+      _activeVoiceField = field;
+      if (_currentFieldError() != null) {
+        _activeVoiceField = previousField;
+        return field;
+      }
+    }
+    _activeVoiceField = previousField;
+    return null;
+  }
+
+  Future<void> _enableVoiceMode() async {
+    if (!mounted || _voiceEnabled || _loading) return;
+
+    try {
+      await _voiceService.initialize();
+      final ready = await _speechService.initialize(
+        onStatus: _handleSpeechStatus,
+        onError: (message) => debugPrint('Speech error: $message'),
+      );
+
+      if (!mounted || !ready) return;
+
+      setState(() {
+        _voiceEnabled = true;
+        _voiceMode = _VoiceMode.commands;
+        _awaitingVoiceChoice = false;
+      });
+
+      final nextField = _firstIncompleteVoiceField();
+      if (nextField != null) {
+        await _startFieldCapture(nextField);
+      } else {
+        _activeVoiceField = null;
+        await _speakAndResume(
+          'جميع الحقول تحتوي على بيانات صحيحة. '
+          'قل إنشاء الحساب للمتابعة.',
+        );
+      }
+    } catch (e) {
+      debugPrint('Could not enable signup voice mode: $e');
+    }
+  }
+
   Future<void> _handleReviewCommand(String text) async {
     final command = _normalizeArabic(text);
 
     debugPrint('SIGNUP REVIEW COMMAND: "$command"');
 
-    // قراءة كلمة المرور عند طلب المستخدم فقط.
-    if (_activeVoiceField == _VoiceField.password &&
-        (command.contains('قراءه كلمة المرور') ||
+    if (_isSwitchToManualCommand(command)) {
+      await _switchToManual();
+      return;
+    }
+
+    // Read sensitive fields only after the user explicitly requests it.
+    if ((_activeVoiceField == _VoiceField.password ||
+            _activeVoiceField == _VoiceField.confirmPassword) &&
+        (command.contains('قراءة الحقل') ||
+            command.contains('قراءه الحقل') ||
+            command.contains('اقرا الحقل') ||
+            command.contains('قراءة كلمة المرور') ||
+            command.contains('قراءه كلمة المرور') ||
             command.contains('قراءه كلمه المرور') ||
             command.contains('اقرا كلمة المرور') ||
             command.contains('اقرا كلمه المرور') ||
-            command.contains('اسمع كلمة المرور'))) {
-      final password = _passwordController.text;
+            command.contains('قراءة تأكيد كلمة المرور') ||
+            command.contains('قراءه تاكيد كلمة المرور') ||
+            command.contains('اقرا تاكيد كلمة المرور'))) {
+      final isConfirmation = _activeVoiceField == _VoiceField.confirmPassword;
+      final value = isConfirmation
+          ? _confirmController.text
+          : _passwordController.text;
+      final fieldLabel = isConfirmation ? 'تأكيد كلمة المرور' : 'كلمة المرور';
 
       await _speakAndResume(
-        'كلمة المرور هي: $password. '
-        'إذا أردت اعتمادها قل تأكيد، '
-        'أو قل إعادة المحاولة لإدخالها من جديد، '
-        'أو قل قراءة كلمة المرور لسماعها مرة أخرى.',
+        '$fieldLabel هي: $value. '
+        'قل تأكيد لاعتماد الإدخال، '
+        'أو إعادة المحاولة لإدخاله من جديد، '
+        'أو قراءة الحقل لسماعه مرة أخرى، '
+        'أو الانتقال إلى الإدخال اليدوي.',
       );
       return;
     }
 
-    // إعادة المحاولة تمسح محتوى الحقل بالكامل.
     if (command.contains('اعادة المحاولة') ||
         command.contains('اعاده المحاوله') ||
         command == 'اعادة' ||
         command == 'اعد') {
       final field = _activeVoiceField;
-
       if (field != null) {
         await _startFieldCapture(field);
       }
       return;
     }
 
-    // اعتماد الإدخال والانتقال للحقل التالي.
     if (command == 'تاكيد' ||
         command == 'اكد' ||
         command.contains('تاكيد الادخال') ||
@@ -828,16 +1063,18 @@ class _SignupPageState extends State<SignupPage> {
     }
 
     String options;
-
-    if (_activeVoiceField == _VoiceField.password) {
+    if (_activeVoiceField == _VoiceField.password ||
+        _activeVoiceField == _VoiceField.confirmPassword) {
       options =
-          'قل تأكيد لاعتماد كلمة المرور، '
-          'أو إعادة المحاولة لإدخالها من جديد، '
-          'أو قراءة كلمة المرور لسماعها.';
+          'قل تأكيد لاعتماد الإدخال، '
+          'أو إعادة المحاولة لإدخاله من جديد، '
+          'أو قراءة الحقل لسماعه، '
+          'أو الانتقال إلى الإدخال اليدوي.';
     } else {
       options =
           'قل تأكيد لاعتماد الإدخال، '
-          'أو إعادة المحاولة لإدخاله من جديد.';
+          'أو إعادة المحاولة لإدخاله من جديد، '
+          'أو الانتقال إلى الإدخال اليدوي.';
     }
 
     await _speakAndResume('لم أتعرف على اختيارك. $options');
@@ -873,56 +1110,97 @@ class _SignupPageState extends State<SignupPage> {
     }
   }
 
-  Future<void> _startFieldCapture(_VoiceField field) async {
+  String _fieldRequirements(_VoiceField field) {
+    switch (field) {
+      case _VoiceField.name:
+        return 'يجب أن يكون الاسم مكونًا من حرفين على الأقل '
+            'و20 حرفًا كحد أقصى، '
+            'ويسمح باستخدام الحروف العربية أو الإنجليزية والمسافات فقط.';
+
+      case _VoiceField.email:
+        return 'يجب إدخال بريد إلكتروني صحيح باللغة الإنجليزية، '
+            'ويحتوي على اسم المستخدم، ثم علامة آت، '
+            'ثم اسم النطاق ونقطة وامتداد البريد، '
+            'مثل example@gmail.com، '
+            'ولا يُسمح بإدخال مسافات.';
+
+      case _VoiceField.password:
+        return 'يجب أن تتكون كلمة المرور من 8 أحرف على الأقل， '
+            'وأن تحتوي على حرف إنجليزي كبير وحرف صغير ورقم ورمز خاص واحد على الأقل， '
+            'الرمز الخاص مثل علامة التعجب أو علامة الآت. '
+            'يُسمح بالأحرف الإنجليزية والأرقام والرموز فقط.';
+
+      case _VoiceField.confirmPassword:
+        return 'يجب إعادة إدخال كلمة المرور نفسها تمامًا، '
+            'بما في ذلك الأحرف الكبيرة والصغيرة والأرقام والرموز， '
+            'حتى تتطابق مع كلمة المرور السابقة.';
+    }
+  }
+
+  Future<void> _startFieldCapture(
+    _VoiceField field, {
+    bool clearExisting = true,
+  }) async {
     if (!mounted) return;
 
     _activeVoiceField = field;
     _voiceMode = _VoiceMode.field;
 
+    final requirements = _fieldRequirements(field);
+
     switch (field) {
       case _VoiceField.name:
-        _nameController.clear();
-        setState(() => _nameTouched = false);
+        if (clearExisting) {
+          _nameController.clear();
+          setState(() => _nameTouched = false);
+        }
 
         await _speakAndResume(
           'أنت الآن في حقل الاسم الكامل. '
-          'ابدأ بإدخال اسمك.',
+          '$requirements '
+          'ابدأ بإدخال اسمك. ',
         );
         break;
 
       case _VoiceField.email:
-        _emailController.clear();
-        setState(() => _emailTouched = false);
+        if (clearExisting) {
+          _emailController.clear();
+          setState(() => _emailTouched = false);
+        }
 
         await _speakAndResume(
           'أنت الآن في حقل البريد الإلكتروني. '
-          'أدخل بريدك الإلكتروني. '
+          '$requirements '
           'يمكنك قول نقطة أو دوت لإدخال النقطة، '
           'وعند أو آت لإدخال علامة آت، '
           'وشرطة أو داش لإدخال الشرطة، '
-          'وشرطة سفلية أو أندر سكور لإدخال الشرطة السفلية.',
-        );
+          'وشرطة سفلية أو أندر سكور لإدخال الشرطة السفلية. '
+          'ابدأ بإدخال بريدك الإلكتروني. ',);
         break;
 
       case _VoiceField.password:
-        _passwordController.clear();
-        setState(() => _passwordTouched = false);
+        if (clearExisting) {
+          _passwordController.clear();
+          setState(() => _passwordTouched = false);
+        }
 
         await _speakAndResume(
           'أنت الآن في حقل كلمة المرور. '
-          'أدخل كلمة المرور باستخدام الأحرف الإنجليزية والأرقام والرموز. '
-          'لن أقرأ كلمة المرور تلقائيًا.',
+          '$requirements '
+          'لن أقرأ كلمة المرور تلقائيًا حفاظًا على الخصوصية. ',
         );
         break;
 
       case _VoiceField.confirmPassword:
-        _confirmController.clear();
-        setState(() => _confirmTouched = false);
+        if (clearExisting) {
+          _confirmController.clear();
+          setState(() => _confirmTouched = false);
+        }
 
         await _speakAndResume(
           'أنت الآن في حقل تأكيد كلمة المرور. '
-          'أعد إدخال كلمة المرور للتأكد من تطابقها. '
-          'لن أقرأ محتواها بصوت مرتفع.',
+          '$requirements '
+          'لن أقرأ كلمة المرور تلقائيًا حفاظًا على الخصوصية. ',
         );
         break;
     }
@@ -930,6 +1208,12 @@ class _SignupPageState extends State<SignupPage> {
 
   Future<void> _handleFieldInput(String text) async {
     if (_activeVoiceField == null) return;
+
+    final normalizedCommand = _normalizeArabic(text);
+    if (_isSwitchToManualCommand(normalizedCommand)) {
+      await _switchToManual();
+      return;
+    }
 
     debugPrint(
       'SIGNUP FIELD INPUT: "$text" | '
@@ -956,7 +1240,8 @@ class _SignupPageState extends State<SignupPage> {
           'تم التقاط الاسم التالي: '
           '${_nameController.text}. '
           'قل تأكيد لاعتماد الاسم، '
-          'أو إعادة المحاولة لإدخاله من جديد.',
+          'أو إعادة المحاولة لإدخاله من جديد، '
+          'أو الانتقال إلى الإدخال اليدوي.',
         );
         break;
 
@@ -965,26 +1250,30 @@ class _SignupPageState extends State<SignupPage> {
           'تم التقاط البريد الإلكتروني التالي: '
           '${_emailController.text}. '
           'قل تأكيد لاعتماد البريد، '
-          'أو إعادة المحاولة لإدخاله من جديد.',
+          'أو إعادة المحاولة لإدخاله من جديد، '
+          'أو الانتقال إلى الإدخال اليدوي.',
         );
         break;
 
       case _VoiceField.password:
         await _speakAndResume(
           'تم التقاط كلمة المرور. '
-          'لن أقرأ محتواها تلقائيًا. '
+          'لن أقرأ محتواها تلقائيًا حفاظًا على الخصوصية. '
           'قل تأكيد لاعتمادها، '
           'أو إعادة المحاولة لإدخالها من جديد، '
-          'أو قراءة كلمة المرور لسماعها.',
+          'أو قراءة الحقل بصوت مرتفع لسماعه، '
+          'أو الانتقال إلى الإدخال اليدوي.',
         );
         break;
 
       case _VoiceField.confirmPassword:
         await _speakAndResume(
           'تم التقاط تأكيد كلمة المرور. '
-          'لن أقرأ محتواها حفاظًا على الخصوصية. '
+          'لن أقرأ محتواها تلقائيًا حفاظًا على الخصوصية. '
           'قل تأكيد لاعتماد الإدخال، '
-          'أو إعادة المحاولة لإدخاله من جديد.',
+          'أو إعادة المحاولة لإدخاله من جديد، '
+          'أو قراءة الحقل بصوت مرتفع لسماعه '
+          'أو الانتقال إلى الإدخال اليدوي.',
         );
         break;
     }
@@ -1213,13 +1502,33 @@ class _SignupPageState extends State<SignupPage> {
   }
 
   Future<void> _speakAndResume(String message) async {
-    if (!mounted) return;
+    if (!mounted || !_voiceEnabled) return;
 
     _voiceBusy = true;
 
     try {
       await _speechService.stopListening();
-      await _voiceService.speak(message);
+
+      if (!mounted) return;
+
+      final screenReaderActive =
+          MediaQuery.maybeOf(context)?.accessibleNavigation ??
+          _screenReaderActive;
+      if (screenReaderActive) {
+        // Route announcements through the active screen reader instead of
+        // starting a second TTS engine over TalkBack.
+        SemanticsService.sendAnnouncement(
+          View.of(context),
+          message,
+          Directionality.of(context),
+        );
+        final estimatedSpeechTime = Duration(
+          milliseconds: (message.length * 75).clamp(1200, 9000).toInt(),
+        );
+        await Future<void>.delayed(estimatedSpeechTime);
+      } else {
+        await _voiceService.speak(message);
+      }
     } catch (e) {
       debugPrint('Voice feedback error: $e');
     } finally {
