@@ -19,6 +19,7 @@ import 'profile_page.dart';
 import 'login_page.dart';
 import 'signup_page.dart';
 import 'favorite_page.dart';
+import 'guest_access_page.dart';
 import '../services/favorite_service.dart';
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -1262,7 +1263,14 @@ Future<void> _saveFavoriteLocation() async {
         onTap: (index) async{
           if (index == 3) {
             if (FirebaseAuth.instance.currentUser == null) {
-              _promptSignIn();
+              Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => const GuestAccessPage(
+                    feature: GuestFeature.profile,
+                  ),
+                ),
+              );
             } else {
               Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const ProfilePage()));
             }
@@ -1274,7 +1282,14 @@ Future<void> _saveFavoriteLocation() async {
             }
           } else if (index == 2) {
             if (FirebaseAuth.instance.currentUser == null) {
-                _promptSignIn();
+              Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => const GuestAccessPage(
+                    feature: GuestFeature.favorites,
+                  ),
+                ),
+              );
           } else {
                   final result = await Navigator.push(
                  context,

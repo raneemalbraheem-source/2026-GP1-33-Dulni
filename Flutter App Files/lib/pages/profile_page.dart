@@ -3,12 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/auth_service.dart';
-import 'login_page.dart';
 import 'welcome_page.dart';
 import '../widgets/app_bottom_navigation.dart';
 import 'home_page.dart';
 import '../services/logout_helper.dart';
 import 'favorite_page.dart';
+import 'voice_preferences_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -526,6 +526,24 @@ class _ProfilePageState extends State<ProfilePage> {
                                           : const Text('حفظ الاسم'),
                                     ),
                                 ],
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            Card(
+                              child: ListTile(
+                                leading: const Icon(Icons.record_voice_over),
+                                title: const Text('تفضيلات الصوت'),
+                                subtitle: const Text(
+                                  'اختيار الصوت وضبط سرعة التحدث',
+                                ),
+                                trailing: const Icon(Icons.chevron_left),
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute<void>(
+                                    builder: (_) =>
+                                        const VoicePreferencesPage(),
+                                  ),
+                                ),
                               ),
                             ),
                             const SizedBox(height: 32),
