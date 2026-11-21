@@ -1,0 +1,15 @@
+
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.example.dulni_project",
+      "sha256_cert_fingerprints": [
+        "13:31:58:68:BD:A8:C2:D2:5B:4B:E8:18:62:DE:CC:D5:35:38:30:40:98:F7:3A:81:F3:11:A9:6C:38:D4:F1:FC"
+      ]
+    }
+  }
+]

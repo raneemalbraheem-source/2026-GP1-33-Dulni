@@ -1,12 +1,10 @@
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/auth_service.dart';
-import 'home_page.dart';
 import 'signup_page.dart';
-import 'password_reset_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -19,37 +17,21 @@ class _LoginPageState extends State<LoginPage> {
   static final RegExp _emailPattern = RegExp(
     r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$",
   );
-  static final RegExp _englishPrintableCharacters = RegExp(r'[\x21-\x7E]');
+
+  static final RegExp _englishPrintableCharacters =
+      RegExp(r'[\x21-\x7E]');
 
   final _formKey = GlobalKey<FormState>();
   final _emailFocusNode = FocusNode();
-  final _passwordFocusNode = FocusNode();
   final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
   final _authService = AuthService();
 
-  bool _rememberMe = false;
-  bool _hidePassword = true;
   bool _loading = false;
   bool _emailTouched = false;
-  bool _passwordTouched = false;
 
   bool get _emailIsValid {
     final value = _emailController.text.trim();
     return value.isNotEmpty && _emailPattern.hasMatch(value);
-  }
-
-  bool _isAsciiPassword(String value) =>
-      value.codeUnits.every((unit) => unit >= 0x21 && unit <= 0x7E);
-
-  bool get _passwordIsValid {
-    final password = _passwordController.text;
-    return _isAsciiPassword(password) &&
-        password.length >= 8 &&
-        RegExp(r'[A-Z]').hasMatch(password) &&
-        RegExp(r'[a-z]').hasMatch(password) &&
-        RegExp(r'\d').hasMatch(password) &&
-        RegExp(r'[^A-Za-z0-9\s]').hasMatch(password);
   }
 
   Color get _successColor {
@@ -61,9 +43,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void dispose() {
     _emailFocusNode.dispose();
-    _passwordFocusNode.dispose();
     _emailController.dispose();
-    _passwordController.dispose();
     super.dispose();
   }
 
@@ -72,95 +52,103 @@ class _LoginPageState extends State<LoginPage> {
     required IconData prefixIcon,
     required bool touched,
     required bool isValid,
-    Widget? suffixIcon,
   }) {
     final colors = Theme.of(context).colorScheme;
-    final Color normalBorder = colors.outline;
-    final Color currentBorder = !touched
+    final normalBorder = colors.outline;
+
+    final currentBorder = !touched
         ? normalBorder
         : isValid
             ? _successColor
             : colors.error;
 
-    OutlineInputBorder outline(Color color, {double width = 1.2}) {
+    OutlineInputBorder outline(
+      Color color, {
+      double width = 1.2,
+    }) {
       return OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: color, width: width),
+        borderSide: BorderSide(
+          color: color,
+          width: width,
+        ),
       );
     }
 
     return InputDecoration(
-      labelText: labelText,
-      prefixIcon: ExcludeSemantics(child: Icon(prefixIcon)),
-      suffixIcon: suffixIcon,
-      border: outline(normalBorder),
-      enabledBorder: outline(currentBorder),
-      focusedBorder: outline(currentBorder, width: 1.8),
-      errorBorder: outline(colors.error),
-      focusedErrorBorder: outline(colors.error, width: 1.8),
-      errorMaxLines: 2,
-    );
+  labelText: labelText,
+  helperText: 'أدخل البريد الإلكتروني المرتبط بحسابك في دُلّني.',
+  prefixIcon: ExcludeSemantics(
+    child: Icon(prefixIcon),
+  ),
+  border: outline(normalBorder),
+  enabledBorder: outline(currentBorder),
+  focusedBorder: outline(
+    currentBorder,
+    width: 1.8,
+  ),
+  errorBorder: outline(colors.error),
+  focusedErrorBorder: outline(
+    colors.error,
+    width: 1.8,
+  ),
+  errorMaxLines: 2,
+);
   }
 
   Future<void> _login() async {
+    if (_loading) return;
+
     if (!_formKey.currentState!.validate()) {
-      if (!_emailIsValid) {
-        _emailFocusNode.requestFocus();
-      } else {
-        _passwordFocusNode.requestFocus();
-      }
+      _emailFocusNode.requestFocus();
       return;
     }
 
     setState(() => _loading = true);
 
     try {
-      await _authService.signIn(
-        email: _emailController.text,
-        password: _passwordController.text,
-      );
+      final email = _emailController.text.trim().toLowerCase();
 
-      final preferences = await SharedPreferences.getInstance();
-      await preferences.setBool('rememberMe', _rememberMe);
+      final canSendLink =
+          await _authService.canSendSignInLink(email);
+
+      if (canSendLink) {
+        await _authService.sendSignInLink(
+          email: email,
+        );
+      }
 
       if (!mounted) return;
 
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute<void>(
-          builder: (_) => const HomePage(),
-        ),
-        (_) => false,
+      _showMessage(
+        'إذا كان لديك حساب مسجل في دُلّني، '
+        'فسيتم إرسال رابط تسجيل الدخول إلى بريدك الإلكتروني. '
+        'يرجى التحقق من صندوق الوارد أو البريد المزعج.',
       );
     } on FirebaseAuthException catch (e) {
-      _showMessage(_authError(e.code));
+      if (!mounted) return;
+
+      if (e.code == 'too-many-requests') {
+        _showMessage('محاولات كثيرة. يرجى المحاولة لاحقًا.');
+      } else if (e.code == 'network-request-failed') {
+        _showMessage(
+          'تعذر الاتصال بالإنترنت. تحقق من الاتصال وحاول مجددًا.',
+        );
+      } else {
+        _showMessage(
+          'تعذر معالجة طلبك. تحقق من الاتصال وحاول مجددًا.',
+        );
+      }
     } catch (_) {
+      if (!mounted) return;
+
       _showMessage(
-        'تعذر تسجيل الدخول. تحقق من الاتصال وحاول مجددًا.',
+        'تعذر معالجة طلبك. تحقق من الاتصال وحاول مجددًا.',
       );
     } finally {
       if (mounted) {
         setState(() => _loading = false);
       }
-    }
-  }
-
-  String _authError(String code) {
-    switch (code) {
-      case 'invalid-email':
-        return 'البريد الإلكتروني غير صحيح.';
-      case 'user-not-found':
-      case 'invalid-credential':
-      case 'wrong-password':
-        return 'بيانات الدخول غير صحيحة.';
-      case 'user-disabled':
-        return 'الحساب غير مفعّل. تواصل مع الدعم.';
-      case 'too-many-requests':
-        return 'محاولات كثيرة. حاول لاحقًا.';
-      case 'network-request-failed':
-        return 'تعذر الاتصال بالإنترنت. تحقق من الاتصال وحاول مجددًا.';
-      default:
-        return 'تعذر تسجيل الدخول. حاول مجددًا.';
     }
   }
 
@@ -177,12 +165,11 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  void _resetPassword() {
-    final email = _emailController.text.trim();
-    Navigator.push(
+  void _goToSignUp() {
+    Navigator.pushReplacement(
       context,
       MaterialPageRoute<void>(
-        builder: (_) => PasswordResetPage(initialEmail: email),
+        builder: (_) => const SignupPage(),
       ),
     );
   }
@@ -192,22 +179,30 @@ class _LoginPageState extends State<LoginPage> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('تسجيل الدخول')),
+      appBar: AppBar(
+        title: const Text('تسجيل الدخول'),
+      ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
+              constraints: const BoxConstraints(
+                maxWidth: 520,
+              ),
               child: Form(
                 key: _formKey,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const ExcludeSemantics(
-                      child: Icon(Icons.explore_outlined, size: 76),
+                      child: Icon(
+                        Icons.explore_outlined,
+                        size: 76,
+                      ),
                     ),
                     const SizedBox(height: 16),
+
                     Semantics(
                       header: true,
                       child: Text(
@@ -216,13 +211,18 @@ class _LoginPageState extends State<LoginPage> {
                         textAlign: TextAlign.center,
                       ),
                     ),
+
                     const SizedBox(height: 8),
+
                     Text(
-                      'يمكن تسجيل الدخول للمتابعة مع دُلّني.',
-                      style: theme.textTheme.bodyLarge,
+                      'أدخل بريدك الإلكتروني وسنرسل إليك رابطًا '
+                      'آمنًا لتسجيل الدخول دون الحاجة إلى كلمة مرور.',
+                      style: theme.textTheme.bodyMedium,
                       textAlign: TextAlign.center,
                     ),
+
                     const SizedBox(height: 28),
+
                     TextFormField(
                       focusNode: _emailFocusNode,
                       controller: _emailController,
@@ -231,12 +231,16 @@ class _LoginPageState extends State<LoginPage> {
                           _englishPrintableCharacters,
                         ),
                       ],
-                      autofillHints: const [AutofillHints.email],
-                      textInputAction: TextInputAction.next,
-                      onFieldSubmitted: (_) => _passwordFocusNode.requestFocus(),
+                      autofillHints: const [
+                        AutofillHints.email,
+                      ],
+                      textInputAction: TextInputAction.done,
+                      onFieldSubmitted: (_) =>
+                          _loading ? null : _login(),
                       keyboardType: TextInputType.emailAddress,
                       textDirection: TextDirection.ltr,
-                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      autovalidateMode:
+                          AutovalidateMode.onUserInteraction,
                       decoration: _fieldDecoration(
                         labelText: 'البريد الإلكتروني',
                         prefixIcon: Icons.email_outlined,
@@ -248,114 +252,49 @@ class _LoginPageState extends State<LoginPage> {
                       },
                       validator: (value) {
                         final email = value?.trim() ?? '';
+
                         if (email.isEmpty) {
                           return 'أدخل البريد الإلكتروني.';
                         }
+
                         if (!_emailPattern.hasMatch(email)) {
                           return 'أدخل بريدًا إلكترونيًا صحيحًا.';
                         }
+
                         return null;
                       },
                     ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      focusNode: _passwordFocusNode,
-                      controller: _passwordController,
-                      textDirection: TextDirection.ltr,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                          _englishPrintableCharacters,
-                        ),
-                      ],
-                      autofillHints: const [AutofillHints.password],
-                      textInputAction: TextInputAction.done,
-                      onFieldSubmitted: (_) => _loading ? null : _login(),
-                      obscureText: _hidePassword,
-                      enableSuggestions: false,
-                      autocorrect: false,
-                      autovalidateMode: AutovalidateMode.onUserInteraction,
-                      decoration: _fieldDecoration(
-                        labelText: 'كلمة المرور',
-                        prefixIcon: Icons.lock_outline,
-                        touched: _passwordTouched,
-                        isValid: _passwordIsValid,
-                        suffixIcon: IconButton(
-                          tooltip: _hidePassword
-                              ? 'إظهار كلمة المرور'
-                              : 'إخفاء كلمة المرور',
-                          onPressed: () {
-                            setState(() => _hidePassword = !_hidePassword);
-                          },
-                          icon: Icon(
-                            _hidePassword
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
-                          ),
-                        ),
-                      ),
-                      onChanged: (_) {
-                        setState(() => _passwordTouched = true);
-                      },
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'أدخل كلمة المرور.';
-                        }
-                        if (!_isAsciiPassword(value)) {
-                          return 'استخدم أحرفًا إنجليزية ورموزًا فقط.';
-                        }
-                        if (!_passwordIsValid) {
-                          return 'أدخل كلمة مرور صالحة.';
-                        }
-                        return null;
-                      },
-                    ),
-                    CheckboxListTile(
-                      value: _rememberMe,
-                      onChanged: _loading
-                          ? null
-                          : (value) {
-                              setState(() => _rememberMe = value ?? false);
-                            },
-                      title: const Text('تذكّرني'),
-                      controlAffinity: ListTileControlAffinity.leading,
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    Align(
-                      alignment: AlignmentDirectional.centerEnd,
-                      child: TextButton(
-                        onPressed: _loading ? null : _resetPassword,
-                        child: const Text('نسيت كلمة المرور؟'),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
+
+                    const SizedBox(height: 24),
+
                     ElevatedButton(
                       onPressed: _loading ? null : _login,
                       child: _loading
-                          ? Semantics(
-                              excludeSemantics: true,
-                              liveRegion: true,
-                              label: 'جارٍ تسجيل الدخول',
-                              child: SizedBox(
-                                height: 24,
-                                width: 24,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                      ? const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
                               ),
-                            )
-                          : const Text('تسجيل الدخول'),
+                            ),
+                            SizedBox(width: 12),
+                            Text('جارٍ الإرسال...'),
+                          ],
+                        )
+                      : const Text('إرسال رابط تسجيل الدخول'),
                     ),
-                    const SizedBox(height: 16),
+
                     Wrap(
                       alignment: WrapAlignment.center,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         const Text('لا يوجد حساب؟'),
                         TextButton(
-                          onPressed: () => Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (_) => const SignupPage(),
-                            ),
-                          ),
+                          onPressed: _loading ? null : _goToSignUp,
                           child: const Text('إنشاء حساب'),
                         ),
                       ],
