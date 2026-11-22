@@ -48,6 +48,8 @@ dependencies:
   flutter_tts: ^4.2.5
   audioplayers: ^6.8.1
   app_links: ^7.2.2
+  firebase_app_check: ^0.4.9
+  azure_speech_services: 1.0.7
 
 
 dev_dependencies:

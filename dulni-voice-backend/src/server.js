@@ -21,7 +21,6 @@ app.get('/health', (req, res) => {
 
 app.use('/api/voice', voiceRoutes);
 app.use('/api/auth', authRoutes);
-app.use(express.json({ limit: '1mb' }));
 
 const PORT = process.env.PORT || 3000;
 

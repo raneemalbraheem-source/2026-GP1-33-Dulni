@@ -65,6 +65,64 @@ class _SignupPageState extends State<SignupPage> {
     return email.isNotEmpty && _emailPattern.hasMatch(email);
   }
 
+  Timer? _silenceTimer;
+
+static const Duration _silenceTimeout = Duration(seconds: 8);
+
+void _cancelSilenceTimer() {
+  _silenceTimer?.cancel();
+  _silenceTimer = null;
+}
+
+void _startSilenceTimer() {
+  _cancelSilenceTimer();
+
+  if (!mounted ||
+      !_voiceEnabled ||
+      _voiceBusy ||
+      _voiceProcessing ||
+      _loading ||
+      _voiceMode == _VoiceMode.manual) {
+    return;
+  }
+
+  _silenceTimer = Timer(_silenceTimeout, () {
+    if (!mounted ||
+        !_voiceEnabled ||
+        _voiceBusy ||
+        _voiceProcessing ||
+        _loading ||
+        _voiceMode == _VoiceMode.manual) {
+      return;
+    }
+
+    String reminder;
+
+    if (_voiceMode == _VoiceMode.field &&
+        _activeVoiceField != null) {
+      final fieldName =
+    _activeVoiceField == _VoiceField.name
+        ? 'حقل الاسم الكامل'
+        : 'حقل البريد الإلكتروني';
+
+reminder =
+    '$fieldName. '
+    '${_fieldRequirements(_activeVoiceField!)} '
+    'لم يصلني إدخال. يمكنك التحدث الآن.';
+    } else if (_voiceMode == _VoiceMode.review) {
+      reminder =
+          'لم يصلني ردك. قولي تأكيد للمتابعة، '
+          'أو إعادة المحاولة لإدخال المعلومة مرة أخرى.';
+    } else {
+      reminder =
+          'لم يصلني ردك. يرجى سماع التعليمات '
+          'ثم قول بدء إدخال المعلومات.';
+    }
+
+    _speakAndResume(reminder);
+  });
+}
+
   Color get _successColor {
     return Theme.of(context).brightness == Brightness.dark
         ? Colors.green.shade300
@@ -74,6 +132,7 @@ class _SignupPageState extends State<SignupPage> {
   @override
   void dispose() {
     _voiceEnabled = false;
+    _cancelSilenceTimer();
 
     unawaited(_speechService.cancelListening());
     unawaited(_voiceService.stop());
@@ -131,6 +190,8 @@ class _SignupPageState extends State<SignupPage> {
       }
       return;
     }
+
+    _cancelSilenceTimer();
 
     setState(() => _loading = true);
 
@@ -508,6 +569,9 @@ class _SignupPageState extends State<SignupPage> {
       useLastPartialOnStop: true,
     );
     debugPrint('SIGNUP: Listening started = $started');
+    if (started) {
+  _startSilenceTimer();
+}
 
     if (!started && mounted && _voiceEnabled) {
       debugPrint('SIGNUP: Could not start listening.');
@@ -540,6 +604,8 @@ class _SignupPageState extends State<SignupPage> {
 
   Future<void> _handleVoiceResult(String text) async {
     if (!mounted || _voiceProcessing) return;
+
+    _cancelSilenceTimer();
 
     debugPrint('SIGNUP: Processing voice result: $text');
 
@@ -669,6 +735,8 @@ class _SignupPageState extends State<SignupPage> {
 
   Future<void> _switchToManual() async {
     if (!mounted) return;
+
+    _cancelSilenceTimer();
 
     final fieldToFocus = _activeVoiceField;
     _voiceRestartPending = false;
@@ -1011,30 +1079,35 @@ class _SignupPageState extends State<SignupPage> {
   }
 
   String _normalizeEmailVoiceInput(String text) {
-    String result = text.toLowerCase();
+  String result = text.toLowerCase().trim();
 
-    final replacements = <String, String>{
-      'نقطة': '.',
-      'دوت': '.',
-      'dot': '.',
-      'عند': '@',
-      'ات': '@',
-      'آت': '@',
-      'at': '@',
-      'شرطة سفلية': '_',
-      'اندر سكور': '_',
-      'underscore': '_',
-      'شرطة': '-',
-      'داش': '-',
-      'dash': '-',
-    };
+  final replacements = <String, String>{
+    'شرطة سفلية': '_',
+    'اندر سكور': '_',
+    'underscore': '_',
+    'نقطة': '.',
+    'دوت': '.',
+    'dot': '.',
+    'عند': '@',
+    'آت': '@',
+    'ات': '@',
+    'شرطة': '-',
+    'داش': '-',
+    'dash': '-',
+  };
 
-    replacements.forEach((word, symbol) {
-      result = result.replaceAll(word, symbol);
-    });
+  replacements.forEach((word, symbol) {
+    result = result.replaceAll(word, symbol);
+  });
 
-    return result.replaceAll(RegExp(r'\s+'), '');
-  }
+  // Replace English "at" only when spoken as a separate word.
+  result = result.replaceAll(
+    RegExp(r'(?<![a-z0-9])at(?![a-z0-9])'),
+    '@',
+  );
+
+  return result.replaceAll(RegExp(r'\s+'), '');
+}
 
   String? _currentFieldError() {
     switch (_activeVoiceField) {
@@ -1074,6 +1147,8 @@ class _SignupPageState extends State<SignupPage> {
   Future<void> _speakAndResume(String message) async {
     if (!mounted || !_voiceEnabled) return;
 
+    _cancelSilenceTimer();
+
     _voiceBusy = true;
 
     try {
@@ -1111,8 +1186,11 @@ class _SignupPageState extends State<SignupPage> {
   }
 
   Future<void> _stopVoiceListening() async {
+    _cancelSilenceTimer();
     _voiceEnabled = false;
     await _speechService.cancelListening();
     await _voiceService.stop();
   }
+
+  
 }
