@@ -119,6 +119,17 @@ class _DulniAppState extends State<DulniApp> {
 
       if (email.trim().isEmpty) return;
 
+      final pendingAction = await _authService.getPendingEmailLinkAction();
+      if (pendingAction == 'deleteAccount') {
+        await _authService.completeAccountDeletionWithEmailLink(
+          email: email,
+          emailLink: emailLink,
+        );
+        await _authService.clearPendingEmailLinkData();
+        _showMessage('تم حذف الحساب بنجاح.');
+        return;
+      }
+
       await _authService.completeEmailLinkSignIn(
         email: email,
         emailLink: emailLink,

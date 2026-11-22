@@ -19,6 +19,7 @@ class AuthService {
 
   static const String _pendingEmailKey = 'pendingEmailLinkEmail';
   static const String _pendingNameKey = 'pendingEmailLinkName';
+  static const String _pendingActionKey = 'pendingEmailLinkAction';
 
   Future<UserCredential> signIn({
     required String email,
@@ -79,6 +80,7 @@ Future<void> sendSignUpLink({
 
   await prefs.setString(_pendingEmailKey, normalizedEmail);
   await prefs.setString(_pendingNameKey, fullName.trim());
+  await prefs.remove(_pendingActionKey);
 }
 
 
@@ -139,6 +141,64 @@ Future<void> sendSignUpLink({
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_pendingEmailKey);
     await prefs.remove(_pendingNameKey);
+    await prefs.remove(_pendingActionKey);
+  }
+
+  Future<String?> getPendingEmailLinkAction() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_pendingActionKey);
+  }
+
+  Future<void> sendAccountDeletionLink() async {
+    final email = _requireCurrentUser().email;
+    if (email == null || email.trim().isEmpty) {
+      throw FirebaseAuthException(
+        code: 'email-not-available',
+        message: 'The signed-in account has no email address.',
+      );
+    }
+
+    final normalizedEmail = email.trim().toLowerCase();
+    final actionCodeSettings = ActionCodeSettings(
+      url: 'https://dulni-d2dd1.web.app',
+      handleCodeInApp: true,
+      androidPackageName: 'com.example.dulni_project',
+      androidInstallApp: false,
+    );
+
+    await _auth.sendSignInLinkToEmail(
+      email: normalizedEmail,
+      actionCodeSettings: actionCodeSettings,
+    );
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_pendingEmailKey, normalizedEmail);
+    await prefs.remove(_pendingNameKey);
+    await prefs.setString(_pendingActionKey, 'deleteAccount');
+  }
+
+  Future<void> completeAccountDeletionWithEmailLink({
+    required String email,
+    required String emailLink,
+  }) async {
+    final user = _requireCurrentUser();
+    final normalizedEmail = email.trim().toLowerCase();
+    if (user.email?.trim().toLowerCase() != normalizedEmail) {
+      throw FirebaseAuthException(
+        code: 'email-mismatch',
+        message: 'The email link does not match the signed-in account.',
+      );
+    }
+
+    await user.reauthenticateWithCredential(
+      EmailAuthProvider.credentialWithLink(
+        email: normalizedEmail,
+        emailLink: emailLink,
+      ),
+    );
+
+    await _users.doc(user.uid).delete();
+    await user.delete();
   }
 
   Future<void> sendPasswordReset(String email) {
@@ -275,5 +335,6 @@ Future<void> sendSignInLink({
 
   await prefs.setString(_pendingEmailKey, normalizedEmail);
   await prefs.remove(_pendingNameKey);
+  await prefs.remove(_pendingActionKey);
 }
 }
