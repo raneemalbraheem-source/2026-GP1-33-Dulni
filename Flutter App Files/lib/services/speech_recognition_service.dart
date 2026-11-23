@@ -21,6 +21,8 @@ class SpeechRecognitionService {
 
   bool _isStarting = false;
 
+  Future<void>? _disposeFuture;
+
   final String _arabicLocaleId = 'ar-SA';
   final String _englishLocaleId = 'en-US';
 
@@ -140,14 +142,21 @@ class SpeechRecognitionService {
       _azure = azure;
 
       _subscription = azure.stream.listen(
-        _handleTranscriptionState,
-        onError: (error) {
-          debugPrint('Azure STT stream error: $error');
-          _onError?.call(
-            'Speech recognition connection failed.',
-          );
-        },
-      );
+      _handleTranscriptionState,
+      onError: (error, stackTrace) {
+        debugPrint('Azure STT stream error: $error');
+        debugPrintStack(stackTrace: stackTrace);
+
+        _lastError = error.toString();
+
+        _onError?.call(
+          'Speech recognition connection failed.',
+        );
+      },
+      onDone: () {
+        debugPrint('Azure STT stream closed.');
+      },
+    );
 
       await azure.start();
 
@@ -252,36 +261,62 @@ class SpeechRecognitionService {
   }
 
   Future<void> _disposeAzure({
-    bool flushPendingResults = false,
-  }) async {
-    final subscription = _subscription;
-    final azure = _azure;
+  bool flushPendingResults = false,
+}) {
+  // إذا كانت عملية التنظيف جارية، ننتظر نفس العملية.
+  if (_disposeFuture != null) {
+    return _disposeFuture!;
+  }
 
-    if (flushPendingResults) {
-      _deliverPendingResults();
-    } else {
-      _clearPendingResults();
+  final future = _performDispose(
+    flushPendingResults: flushPendingResults,
+  );
+
+  _disposeFuture = future;
+
+  return future.whenComplete(() {
+    _disposeFuture = null;
+  });
+}
+
+Future<void> _performDispose({
+  required bool flushPendingResults,
+}) async {
+  final subscription = _subscription;
+  final azure = _azure;
+
+  if (flushPendingResults) {
+    _deliverPendingResults();
+  } else {
+    _clearPendingResults();
+  }
+
+  _subscription = null;
+  _azure = null;
+  _activeResultCallback = null;
+  _lastFinalizedCount = 0;
+
+  try {
+    await subscription?.cancel();
+  } catch (error, stackTrace) {
+    debugPrint('Azure STT subscription cancel error: $error');
+    debugPrintStack(stackTrace: stackTrace);
+  }
+
+  if (azure != null) {
+    try {
+      await azure.stop();
+    } catch (error, stackTrace) {
+      debugPrint('Azure STT stop error: $error');
+      debugPrintStack(stackTrace: stackTrace);
     }
 
-    _subscription = null;
-    _azure = null;
-    _activeResultCallback = null;
-    _lastFinalizedCount = 0;
-
-    await subscription?.cancel();
-
-    if (azure != null) {
-      try {
-        await azure.stop();
-      } catch (error) {
-        debugPrint('Azure STT stop error: $error');
-      }
-
-      try {
-        await azure.dispose();
-      } catch (error) {
-        debugPrint('Azure STT dispose error: $error');
-      }
+    try {
+      await azure.dispose();
+    } catch (error, stackTrace) {
+      debugPrint('Azure STT dispose error: $error');
+      debugPrintStack(stackTrace: stackTrace);
     }
   }
+}
 }

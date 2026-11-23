@@ -1,4 +1,3 @@
-
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -9,6 +8,9 @@ import 'package:flutter/semantics.dart';
 import '../services/auth_service.dart';
 import '../services/speech_recognition_service.dart';
 import '../services/voice_feedback_service.dart';
+import '../services/permission_service.dart';
+import '../services/voice_navigation_service.dart';
+import 'guest_access_page.dart';
 import 'signup_page.dart';
 
 enum _LoginVoiceMode { manual, commands, field, review }
@@ -113,7 +115,6 @@ class _LoginPageState extends State<LoginPage> {
 
     return InputDecoration(
       labelText: labelText,
-      helperText: 'أدخل البريد الإلكتروني المرتبط بحسابك في دُلّني.',
       prefixIcon: ExcludeSemantics(
         child: Icon(prefixIcon),
       ),
@@ -155,12 +156,12 @@ class _LoginPageState extends State<LoginPage> {
         _awaitingVoiceChoice = true;
       });
 
-      await _speakAndResume(
-        'مرحبًا بك في صفحة تسجيل الدخول في تطبيق دُلّني. '
-        'يمكنك تسجيل الدخول باستخدام الإدخال الصوتي أو اليدوي. '
-        'هل ترغب في استخدام الإدخال الصوتي؟ '
-        'قل نعم لاستخدامه، أو لا للانتقال إلى الإدخال اليدوي.',
-      );
+    await _speakAndResume(
+      'مرحبًا بك في صفحة تسجيل الدخول في تطبيق دُلّني. '
+      'يمكنك إدخال بياناتك صوتيًا أو يدويًا باستخدام لوحة المفاتيح '
+      'أو قارئ الشاشة. هل ترغب في استخدام الإدخال الصوتي؟ '
+      'قل نعم لاستخدامه، أو لا للانتقال إلى الإدخال اليدوي.',
+    );
     } catch (e) {
       debugPrint('Login voice initialization error: $e');
       if (!mounted) return;
@@ -214,7 +215,9 @@ class _LoginPageState extends State<LoginPage> {
 
     _voiceRestartPending = false;
 
-    final localeId = _speechService.englishLocaleId;
+    final localeId = _voiceMode == _LoginVoiceMode.field
+    ? _speechService.englishLocaleId
+    : _speechService.arabicLocaleId;
 
     if (localeId == null) {
       await _reportMessage(
@@ -224,6 +227,16 @@ class _LoginPageState extends State<LoginPage> {
       await _switchToManual();
       return;
     }
+
+    final hasMicrophonePermission =
+    await PermissionService.requestMicrophonePermission(context);
+
+      if (!mounted) return;
+
+      if (!hasMicrophonePermission) {
+        await _switchToManual();
+        return;
+      }
 
     final started = await _speechService.startListening(
       onResult: (recognizedText) {
@@ -246,28 +259,60 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  void _startSilenceTimer() {
-    _silenceTimer?.cancel();
+  
+void _startSilenceTimer() {
+  _silenceTimer?.cancel();
 
-    if (_voiceMode != _LoginVoiceMode.field) return;
-
-    _silenceTimer = Timer(const Duration(seconds: 8), () async {
-      if (!mounted ||
-          !_voiceEnabled ||
-          _voiceMode != _LoginVoiceMode.field ||
-          _voiceProcessing ||
-          _voiceBusy) {
-        return;
-      }
-
-      await _speakAndResume(
-        'لم أسمع إدخالًا حتى الآن. '
-        'يرجى قول بريدك الإلكتروني باللغة الإنجليزية. '
-        'يمكنك قول نقطة أو دوت لإدخال النقطة، '
-        'وعند أو آت لإدخال علامة آت.',
-      );
-    });
+  if (!mounted ||
+      !_voiceEnabled ||
+      _voiceBusy ||
+      _voiceProcessing ||
+      _loading ||
+      _voiceMode == _LoginVoiceMode.manual) {
+    return;
   }
+
+  _silenceTimer = Timer(const Duration(seconds: 8), () async {
+    if (!mounted ||
+        !_voiceEnabled ||
+        _voiceBusy ||
+        _voiceProcessing ||
+        _loading ||
+        _voiceMode == _LoginVoiceMode.manual) {
+      return;
+    }
+
+    String reminder;
+
+    if (_awaitingVoiceChoice) {
+      reminder =
+          'هل ترغب في استخدام الإدخال الصوتي؟ '
+          'قل نعم لاستخدامه، أو لا للانتقال إلى الإدخال اليدوي.';
+    } else if (_voiceMode == _LoginVoiceMode.field) {
+      reminder =
+          'لم أسمع إدخالًا حتى الآن. '
+          'يرجى قول بريدك الإلكتروني باللغة الإنجليزية. '
+          'يمكنك قول نقطة أو دوت لإدخال النقطة، '
+          'وعند أو آت لإدخال علامة آت.';
+    } else if (_voiceMode == _LoginVoiceMode.review) {
+      reminder =
+          'لم يصلني ردك. قل تأكيد لاعتماد البريد الإلكتروني، '
+          'أو إعادة المحاولة لإدخاله من جديد، '
+          'أو الانتقال إلى الإدخال اليدوي.';
+    } else if (_emailConfirmed) {
+      reminder =
+          'تم تأكيد البريد الإلكتروني. '
+          'قل تسجيل الدخول لإرسال رابط الدخول إلى بريدك.';
+    } else {
+      reminder =
+          'لم يصلني ردك. عندما تكون مستعدًا، '
+          'قل بدء إدخال المعلومات لإدخال بريدك الإلكتروني.';
+    }
+
+    await _speakAndResume(reminder);
+  });
+}
+
 
   void _handleSpeechStatus(String status) {
     debugPrint('LOGIN SPEECH STATUS: $status');
@@ -327,86 +372,195 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   String _normalizeArabic(String text) {
-    return text
-        .replaceAll(RegExp(r'[ًٌٍَُِّْـ]'), '')
-        .replaceAll('أ', 'ا')
-        .replaceAll('إ', 'ا')
-        .replaceAll('آ', 'ا')
-        .replaceAll('ى', 'ي')
-        .trim()
-        .toLowerCase();
-  }
+  return text
+      .replaceAll(RegExp(r'[ًٌٍَُِّْـ]'), '')
+      .replaceAll('أ', 'ا')
+      .replaceAll('إ', 'ا')
+      .replaceAll('آ', 'ا')
+      .replaceAll('ى', 'ي')
+      .replaceAll(RegExp(r'[.,،؛:!?؟"“”()[\]{}]'), '')
+      .trim()
+      .toLowerCase();
+}
 
-  Future<void> _handleVoiceCommand(String text) async {
-    final command = _normalizeArabic(text);
+  
+Future<void> _handleVoiceCommand(String text) async {
+  final command = _normalizeArabic(text);
 
-    if (_isSwitchToManualCommand(command)) {
+  if (_awaitingVoiceChoice) {
+    if (command == 'نعم' ||
+        command == 'اي' ||
+        command == 'ايوه' ||
+        command == 'ابغى' ||
+        command == 'ارغب') {
+      _awaitingVoiceChoice = false;
+
+      _silenceTimer?.cancel();
+      _voiceRestartPending = false;
+      _voiceEnabled = false;
+
+      await _speechService.stopListening();
+
+      if (!mounted) return;
+
+      final started = await VoiceNavigationService.instance.start(
+        context: context,
+        currentPage: VoiceNavigationPage.login,
+        isSignedIn: false,
+        onNavigate: _handleVoiceNavigation,
+        onComplete: _resumeLoginVoice,
+      );
+
+      if (!started && mounted) {
+        await _resumeLoginVoice();
+      }
+
+      return;
+    }
+
+    if (command == 'لا' ||
+        command.contains('ادخال يدوي') ||
+        command.contains('استخدام لوحة المفاتيح')) {
+      _awaitingVoiceChoice = false;
+      await _speakAndResume('حسنًا، سيتم الانتقال إلى الإدخال اليدوي.');
       await _switchToManual();
       return;
     }
 
-    if (_awaitingVoiceChoice) {
-      if (command == 'نعم' ||
-          command == 'اي' ||
-          command == 'ايوه' ||
-          command == 'ابغى' ||
-          command == 'ارغب') {
-        _awaitingVoiceChoice = false;
+    await _speakAndResume(
+      'لم أفهم اختيارك. قل نعم لاستخدام الإدخال الصوتي، '
+      'أو لا لاستخدام الإدخال اليدوي.',
+    );
+    return;
+  }
 
-        await _speakAndResume(
-          'سنستخدم الإدخال الصوتي لإدخال البريد الإلكتروني. '
-          'يجب أن يكون البريد صحيحًا باللغة الإنجليزية، '
-          'مثل example@gmail.com. '
-          'عندما تكون مستعدًا، قل: بدء إدخال المعلومات.',
-        );
-        return;
-      }
+  if (_isSwitchToManualCommand(command)) {
+    await _switchToManual();
+    return;
+  }
 
-      if (command == 'لا' ||
-          command.contains('ادخال يدوي') ||
-          command.contains('استخدام لوحة المفاتيح')) {
-        _awaitingVoiceChoice = false;
-        await _switchToManual();
-        return;
-      }
+  if (command.contains('بدء ادخال المعلومات') ||
+      command.contains('ابدا ادخال المعلومات') ||
+      command.contains('ابدء ادخال المعلومات')) {
+    await _startEmailCapture();
+    return;
+  }
 
+  if (command.contains('تسجيل الدخول') ||
+      command.contains('سجل الدخول')) {
+    if (!_emailConfirmed) {
       await _speakAndResume(
-        'لم أفهم اختيارك. قل نعم لاستخدام الإدخال الصوتي، '
-        'أو لا لاستخدام الإدخال اليدوي.',
+        'يجب تأكيد البريد الإلكتروني أولًا. '
+        'قل بدء إدخال المعلومات لإدخال البريد.',
       );
       return;
     }
 
-    if (command.contains('بدء ادخال المعلومات') ||
-        command.contains('ابدا ادخال المعلومات') ||
-        command.contains('ابدأ إدخال المعلومات')) {
-      await _startEmailCapture();
+    await _speechService.stopListening();
+
+    if (mounted) {
+      await _login();
+    }
+    return;
+  }
+
+  await _speakAndResume(
+    'لم أتعرف على الأمر. '
+    'عندما تكون مستعدًا، قل بدء إدخال المعلومات.',
+  );
+}
+
+  Future<void> _handleVoiceNavigation(
+  VoiceNavigationAction action,
+) async {
+  if (!mounted) return;
+
+  final navigator = Navigator.of(context);
+
+  switch (action) {
+    case VoiceNavigationAction.home:
+      navigator.popUntil((route) => route.isFirst);
+      break;
+
+    case VoiceNavigationAction.favorites:
+      navigator.popUntil((route) => route.isFirst);
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const GuestAccessPage(
+            feature: GuestFeature.favorites,
+          ),
+        ),
+      );
+      break;
+
+    case VoiceNavigationAction.profile:
+      navigator.popUntil((route) => route.isFirst);
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const GuestAccessPage(
+            feature: GuestFeature.profile,
+          ),
+        ),
+      );
+      break;
+
+    case VoiceNavigationAction.signup:
+      _goToSignUp();
+      break;
+
+    case VoiceNavigationAction.login:
+    case VoiceNavigationAction.logout:
+      break;
+  }
+}
+
+Future<void> _resumeLoginVoice() async {
+  if (!mounted) return;
+
+  try {
+    await _voiceService.initialize();
+
+    final ready = await _speechService.initialize(
+      onStatus: _handleSpeechStatus,
+      onError: (message) {
+        debugPrint('Login speech error: $message');
+      },
+    );
+
+    if (!mounted) return;
+
+    if (!ready) {
+      setState(() {
+        _voiceEnabled = false;
+        _voiceMode = _LoginVoiceMode.manual;
+      });
+      _showMessage('تعذر استئناف التجربة الصوتية. يمكنك استخدام الإدخال اليدوي.');
       return;
     }
 
-    if (command.contains('تسجيل الدخول') ||
-        command.contains('سجل الدخول')) {
-      if (!_emailConfirmed) {
-        await _speakAndResume(
-          'يجب تأكيد البريد الإلكتروني أولًا. '
-          'قل بدء إدخال المعلومات لإدخال البريد.',
-        );
-        return;
-      }
-
-      await _speechService.stopListening();
-
-      if (mounted) {
-        await _login();
-      }
-      return;
-    }
+    setState(() {
+      _voiceEnabled = true;
+      _voiceMode = _LoginVoiceMode.commands;
+      _awaitingVoiceChoice = false;
+    });
 
     await _speakAndResume(
-      'لم أتعرف على الأمر. '
-      'عندما تكون مستعدًا، قل بدء إدخال المعلومات.',
+      'سنستخدم الإدخال الصوتي لإدخال البريد الإلكتروني. '
+      'عندما تكون مستعدًا، قل: بدء إدخال المعلومات.',
     );
+  } catch (e) {
+    debugPrint('Could not resume login voice: $e');
+
+    if (!mounted) return;
+
+    setState(() {
+      _voiceEnabled = false;
+      _voiceMode = _LoginVoiceMode.manual;
+    });
+
+    _showMessage('تعذر استئناف التجربة الصوتية. يمكنك استخدام الإدخال اليدوي.');
   }
+}
 
   bool _isSwitchToManualCommand(String command) {
     return command.contains('الانتقال الى الادخال اليدوي') ||
@@ -427,10 +581,11 @@ class _LoginPageState extends State<LoginPage> {
 
     await _speakAndResume(
       'أنت الآن في حقل البريد الإلكتروني. '
-      'أدخل بريدك باللغة الإنجليزية دون مسافات. '
+      'يجب أن يكون البريد صحيحًا باللغة الإنجليزية، '
+          'مثل example@gmail.com. '
       'يمكنك قول نقطة أو دوت لإدخال النقطة، '
       'وعند أو آت لإدخال علامة آت، '
-      'وشرطة أو داش لإدخال الشرطة، '
+      'وشرطة أو داش لإدخال الشرطة， '
       'وشرطة سفلية أو أندر سكور لإدخال الشرطة السفلية. '
       'ابدأ بإدخال بريدك الإلكتروني.',
     );
@@ -472,31 +627,38 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  String _normalizeEmailVoiceInput(String text) {
-    String result = text.toLowerCase().trim();
+  
+String _normalizeEmailVoiceInput(String text) {
+  String result = text.toLowerCase().trim();
 
-    const replacements = <String, String>{
-      'شرطة سفلية': '_',
-      'اندر سكور': '_',
-      'underscore': '_',
-      'نقطة': '.',
-      'دوت': '.',
-      'dot': '.',
-      'عند': '@',
-      'ات': '@',
-      'آت': '@',
-      'at': '@',
-      'شرطة': '-',
-      'داش': '-',
-      'dash': '-',
-    };
+  const replacements = <String, String>{
+    'شرطة سفلية': '_',
+    'اندر سكور': '_',
+    'underscore': '_',
+    'نقطة': '.',
+    'دوت': '.',
+    'dot': '.',
+    'عند': '@',
+    'ات': '@',
+    'آت': '@',
+    'at': '@',
+    'شرطة': '-',
+    'داش': '-',
+    'dash': '-',
+  };
 
-    replacements.forEach((word, symbol) {
-      result = result.replaceAll(word, symbol);
-    });
+  replacements.forEach((word, symbol) {
+    result = result.replaceAll(word, symbol);
+  });
 
-    return result.replaceAll(RegExp(r'\s+'), '');
-  }
+  result = result.replaceAll(RegExp(r'\s+'), '');
+
+  // إزالة علامات الترقيم الزائدة من نهاية البريد فقط.
+  result = result.replaceFirst(RegExp(r'[.,،؛:!?؟]+$'), '');
+
+  return result;
+}
+
 
   Future<void> _handleReviewCommand(String text) async {
     final command = _normalizeArabic(text);
@@ -666,6 +828,8 @@ class _LoginPageState extends State<LoginPage> {
 
       if (!mounted) return;
 
+      final shouldSpeak = _voiceEnabled;
+
       await _stopVoiceListening();
 
       if (!mounted) return;
@@ -676,6 +840,11 @@ class _LoginPageState extends State<LoginPage> {
           'يرجى التحقق من صندوق الوارد أو البريد المزعج.';
 
       _showMessage(message);
+
+      if (shouldSpeak) {
+        await _voiceService.speak(message);
+      }
+
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
 
@@ -760,13 +929,23 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     const SizedBox(height: 16),
                     Semantics(
-                      header: true,
-                      child: Text(
-                        'أهلًا بعودتك',
-                        style: theme.textTheme.headlineMedium,
-                        textAlign: TextAlign.center,
+                        header: true,
+                        excludeSemantics: true,
+                        label: 'أهلًا بعودتك',
+                        customSemanticsActions: {
+                          if (_voiceEnabled)
+                            const CustomSemanticsAction(label: 'الانتقال إلى الإدخال اليدوي'):
+                                _switchToManual
+                          else
+                            const CustomSemanticsAction(label: 'تفعيل الإدخال الصوتي'):
+                                _enableVoiceMode,
+                        },
+                        child: Text(
+                          'أهلًا بعودتك',
+                          style: theme.textTheme.headlineMedium,
+                          textAlign: TextAlign.center,
+                        ),
                       ),
-                    ),
                     const SizedBox(height: 8),
                     Text(
                       'أدخل بريدك الإلكتروني وسنرسل إليك رابطًا '
@@ -820,19 +999,7 @@ class _LoginPageState extends State<LoginPage> {
                       },
                     ),
                     const SizedBox(height: 16),
-                    if (!_voiceEnabled)
-                      OutlinedButton.icon(
-                        onPressed: _loading ? null : _enableVoiceMode,
-                        icon: const Icon(Icons.mic_none),
-                        label: const Text('تفعيل الإدخال الصوتي'),
-                      )
-                    else
-                      OutlinedButton.icon(
-                        onPressed: _loading ? null : _switchToManual,
-                        icon: const Icon(Icons.keyboard_alt_outlined),
-                        label: const Text('الانتقال إلى الإدخال اليدوي'),
-                      ),
-                    const SizedBox(height: 16),
+
                     ElevatedButton(
                       onPressed: _loading ? null : _login,
                       child: _loading
@@ -857,7 +1024,7 @@ class _LoginPageState extends State<LoginPage> {
                       alignment: WrapAlignment.center,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        const Text('لا يوجد حساب؟'),
+                        const Text('ليس لديك حساب؟'),
                         TextButton(
                           onPressed: _loading ? null : _goToSignUp,
                           child: const Text('إنشاء حساب'),

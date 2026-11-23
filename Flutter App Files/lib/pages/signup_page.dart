@@ -7,7 +7,10 @@ import 'dart:async';
 
 import '../services/speech_recognition_service.dart';
 import '../services/voice_feedback_service.dart';
+import '../services/permission_service.dart';
 import '../services/auth_service.dart';
+import '../services/voice_navigation_service.dart';
+import 'guest_access_page.dart';
 import 'login_page.dart';
 
 enum _VoiceMode { manual, commands, field, review }
@@ -74,6 +77,7 @@ void _cancelSilenceTimer() {
   _silenceTimer = null;
 }
 
+
 void _startSilenceTimer() {
   _cancelSilenceTimer();
 
@@ -98,30 +102,43 @@ void _startSilenceTimer() {
 
     String reminder;
 
-    if (_voiceMode == _VoiceMode.field &&
+    if (_awaitingVoiceChoice) {
+      reminder =
+          'هل تريد إدخال بياناتك صوتيًا؟ '
+          'قل نعم لاستخدام الإدخال الصوتي، أو لا للإدخال اليدوي.';
+    } else if (_voiceMode == _VoiceMode.field &&
         _activeVoiceField != null) {
       final fieldName =
-    _activeVoiceField == _VoiceField.name
-        ? 'حقل الاسم الكامل'
-        : 'حقل البريد الإلكتروني';
+          _activeVoiceField == _VoiceField.name
+              ? 'حقل الاسم الكامل'
+              : 'حقل البريد الإلكتروني';
 
-reminder =
-    '$fieldName. '
-    '${_fieldRequirements(_activeVoiceField!)} '
-    'لم يصلني إدخال. يمكنك التحدث الآن.';
+      reminder =
+          '$fieldName. '
+          '${_fieldRequirements(_activeVoiceField!)} '
+          'لم يصلني إدخال. يمكنك التحدث الآن.';
     } else if (_voiceMode == _VoiceMode.review) {
       reminder =
           'لم يصلني ردك. قولي تأكيد للمتابعة، '
-          'أو إعادة المحاولة لإدخال المعلومة مرة أخرى.';
+          'أو إعادة المحاولة لإدخال المعلومة مرة أخرى، '
+          'أو الانتقال إلى الإدخال اليدوي.';
+    } else if (_voiceMode == _VoiceMode.commands &&
+        _activeVoiceField == null &&
+        _nameIsValid &&
+        _emailIsValid) {
+      reminder =
+          'تم تأكيد الاسم والبريد الإلكتروني. '
+          'قل إنشاء الحساب للمتابعة.';
     } else {
       reminder =
-          'لم يصلني ردك. يرجى سماع التعليمات '
-          'ثم قول بدء إدخال المعلومات.';
+          'لم يصلني ردك. عندما تكون مستعدًا، '
+          'قل بدء إدخال المعلومات.';
     }
 
     _speakAndResume(reminder);
   });
 }
+
 
   Color get _successColor {
     return Theme.of(context).brightness == Brightness.dark
@@ -222,13 +239,23 @@ reminder =
       );
 
       if (!mounted) return;
+
+      final shouldSpeak = _voiceEnabled;
       await _stopVoiceListening();
       if (!mounted) return;
 
-      _showMessage(
-        'تم إرسال رابط إنشاء الحساب إلى بريدك الإلكتروني. '
-        'افتح الرابط لإكمال التسجيل والدخول إلى دلّني.',
-      );
+      if (!mounted) return;
+
+      const message =
+          'تم إرسال رابط إنشاء الحساب إلى بريدك الإلكتروني. '
+          'يرجى التحقق من صندوق الوارد أو البريد المزعج '
+          'وفتح الرابط لإكمال التسجيل والدخول إلى دُلّني.';
+
+      _showMessage(message);
+
+      if (shouldSpeak) {
+        await _voiceService.speak(message);
+      }
     } on FirebaseAuthException catch (e) {
       final message = _authError(e.code);
       _showMessage(message);
@@ -512,6 +539,92 @@ reminder =
     }
   }
 
+  Future<void> _handleVoiceNavigation(
+  VoiceNavigationAction action,
+) async {
+  switch (action) {
+    case VoiceNavigationAction.home:
+      Navigator.popUntil(context, (route) => route.isFirst);
+      break;
+
+    case VoiceNavigationAction.favorites:
+      Navigator.popUntil(context, (route) => route.isFirst);
+      Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => const GuestAccessPage(
+            feature: GuestFeature.favorites,
+          ),
+        ),
+      );
+      break;
+
+    case VoiceNavigationAction.profile:
+      Navigator.popUntil(context, (route) => route.isFirst);
+      Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => const GuestAccessPage(
+            feature: GuestFeature.profile,
+          ),
+        ),
+      );
+      break;
+
+    case VoiceNavigationAction.login:
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => const LoginPage(),
+        ),
+      );
+      break;
+
+    case VoiceNavigationAction.signup:
+    case VoiceNavigationAction.logout:
+      break;
+  }
+}
+
+Future<void> _startGeneralVoiceNavigation() async {
+  _voiceEnabled = false;
+  await _stopVoiceListening();
+
+  if (!mounted) return;
+
+  final started = await VoiceNavigationService.instance.start(
+    context: context,
+    currentPage: VoiceNavigationPage.signup,
+    isSignedIn: false,
+    onNavigate: _handleVoiceNavigation,
+    onComplete: () async {
+      if (!mounted) return;
+
+      _voiceEnabled = true;
+      _voiceMode = _VoiceMode.commands;
+      _awaitingVoiceChoice = false;
+
+      await _speakAndResume(
+        'سنُدخل البيانات بالترتيب التالي: الاسم الكامل، '
+        'ثم البريد الإلكتروني فقط. '
+        'عندما تكون مستعدًا، قل: بدء إدخال المعلومات.',
+      );
+    },
+  );
+
+  if (!started && mounted) {
+    _voiceEnabled = true;
+    _voiceMode = _VoiceMode.commands;
+    _awaitingVoiceChoice = false;
+
+    await _speakAndResume(
+      'سنُدخل البيانات بالترتيب التالي: الاسم الكامل، '
+      'ثم البريد الإلكتروني فقط. '
+      'عندما تكون مستعدًا، قل: بدء إدخال المعلومات.',
+    );
+  }
+}
+
   Future<void> _listenForVoice() async {
     if (!mounted ||
         !_voiceEnabled ||
@@ -540,6 +653,7 @@ reminder =
           'أو الانتقال إلى الإدخال اليدوي لإدخال البريد الإلكتروني.';
 
       _showMessage(message);
+
       final screenReaderActive =
           MediaQuery.maybeOf(context)?.accessibleNavigation ??
           _screenReaderActive;
@@ -552,6 +666,16 @@ reminder =
       } else {
         await _voiceService.speak(message);
       }
+      await _switchToManual();
+      return;
+    }
+
+        final hasMicrophonePermission =
+        await PermissionService.requestMicrophonePermission(context);
+
+    if (!mounted) return;
+
+    if (!hasMicrophonePermission) {
       await _switchToManual();
       return;
     }
@@ -639,15 +763,16 @@ reminder =
   }
 
   String _normalizeArabic(String text) {
-    return text
-        .replaceAll(RegExp(r'[ًٌٍَُِّْـ]'), '')
-        .replaceAll('أ', 'ا')
-        .replaceAll('إ', 'ا')
-        .replaceAll('آ', 'ا')
-        .replaceAll('ى', 'ي')
-        .trim()
-        .toLowerCase();
-  }
+  return text
+      .replaceAll(RegExp(r'[ًٌٍَُِّْـ]'), '')
+      .replaceAll('أ', 'ا')
+      .replaceAll('إ', 'ا')
+      .replaceAll('آ', 'ا')
+      .replaceAll('ى', 'ي')
+      .replaceAll(RegExp(r'[.,،؛:!?؟"“”()[\]{}]'), '')
+      .trim()
+      .toLowerCase();
+}
 
   Future<void> _handleVoiceCommand(String text) async {
     final command = _normalizeArabic(text);
@@ -667,21 +792,22 @@ reminder =
           command == 'ابغى' ||
           command == 'ارغب') {
         _awaitingVoiceChoice = false;
-        await _speakAndResume(
-          'سنُدخل البيانات بالترتيب التالي: الاسم الكامل، '
-          'ثم البريد الإلكتروني فقط. '
-          'عندما تكون مستعدًا، قل: ابدأ إنشاء الحساب.',
-        );
+        await _startGeneralVoiceNavigation();
         return;
       }
 
       if (command == 'لا' ||
-          command.contains('ادخال يدوي') ||
-          command.contains('استخدام لوحة المفاتيح')) {
-        _awaitingVoiceChoice = false;
-        await _switchToManual();
-        return;
-      }
+      command.contains('ادخال يدوي') ||
+      command.contains('استخدام لوحة المفاتيح')) {
+    _awaitingVoiceChoice = false;
+
+    await _speakAndResume(
+      'حسنًا، سيتم الانتقال إلى الإدخال اليدوي. '
+    );
+
+    await _switchToManual();
+    return;
+  }
 
       await _speakAndResume(
         'لم أفهم اختيارك. قل نعم لاستخدام الإدخال الصوتي، '
@@ -690,7 +816,10 @@ reminder =
       return;
     }
 
-    if (command.contains('ابدا انشاء الحساب')) {
+    if (command.contains('بدء ادخال المعلومات') ||
+        command.contains('ابدا ادخال المعلومات') ||
+        command.contains('ابدأ إدخال المعلومات' ) ||
+      command.contains('ابدء ادخال المعلومات')) {
       final nextField = _firstIncompleteVoiceField();
       if (nextField != null) {
         await _startFieldCapture(nextField);
@@ -721,10 +850,14 @@ reminder =
       return;
     }
 
-    await _speakAndResume(
-      'لم أتعرف على الأمر. '
-      'عندما تكون مستعدًا، قل: ابدأ إنشاء الحساب.',
-    );
+    final reminder = _nameIsValid &&
+        _emailIsValid &&
+        _activeVoiceField == null
+    ? 'لم أتعرف على الأمر. قل إنشاء الحساب للمتابعة.'
+    : 'لم أتعرف على الأمر. عندما تكون مستعدًا، '
+        'قل بدء إدخال المعلومات.';
+
+await _speakAndResume(reminder);
   }
 
   bool _isSwitchToManualCommand(String normalizedCommand) {
@@ -824,7 +957,7 @@ reminder =
         _activeVoiceField = null;
         await _speakAndResume(
           'الاسم والبريد الإلكتروني صحيحان. '
-          'قل إنشاء الحساب للمتابعة.',
+          'قل إنشاء الحساب لمتابعة إنشاء الحساب.',
         );
       }
     } catch (e) {
@@ -899,8 +1032,6 @@ reminder =
 
       case _VoiceField.email:
         return 'يجب إدخال بريد إلكتروني صحيح باللغة الإنجليزية، '
-            'ويحتوي على اسم المستخدم، ثم علامة آت، '
-            'ثم اسم النطاق ونقطة وامتداد البريد، '
             'مثل example@gmail.com، '
             'ولا يُسمح بإدخال مسافات.';
     }
@@ -1008,6 +1139,10 @@ reminder =
 
     switch (_activeVoiceField!) {
       case _VoiceField.name:
+        value = value
+            .replaceAll(RegExp(r'^[.,،؛:!?؟]+|[.,،؛:!?؟]+$'), '')
+            .trim();
+
         _nameController.text = value;
 
         setState(() {
@@ -1106,7 +1241,10 @@ reminder =
     '@',
   );
 
-  return result.replaceAll(RegExp(r'\s+'), '');
+result = result.replaceAll(RegExp(r'\s+'), '');
+result = result.replaceFirst(RegExp(r'[.,،؛:!?؟]+$'), '');
+
+return result;
 }
 
   String? _currentFieldError() {

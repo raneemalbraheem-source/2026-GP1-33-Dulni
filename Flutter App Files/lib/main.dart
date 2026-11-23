@@ -10,7 +10,6 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 import 'app_theme.dart';
 import 'firebase_options.dart';
 import 'pages/home_page.dart';
-import 'pages/login_page.dart';
 import 'services/auth_service.dart';
 
 Future<void> main() async {
@@ -40,7 +39,6 @@ class _DulniAppState extends State<DulniApp> {
 
   final AppLinks _appLinks = AppLinks();
   final AuthService _authService = AuthService();
-  final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
 
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   final GlobalKey<ScaffoldMessengerState> _scaffoldMessengerKey =
@@ -283,22 +281,7 @@ class _DulniAppState extends State<DulniApp> {
       theme: buildDulniTheme(Brightness.light),
       darkTheme: buildDulniTheme(Brightness.dark),
       themeMode: ThemeMode.system,
-      home: StreamBuilder<User?>(
-        stream: _firebaseAuth.authStateChanges(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
-          }
-
-          if (snapshot.hasData) {
-            return const HomePage();
-          }
-
-          return const LoginPage();
-        },
-      ),
+      home: const HomePage(),
     );
   }
 }
