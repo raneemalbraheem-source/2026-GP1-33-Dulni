@@ -24,11 +24,13 @@ class AuthService {
   Future<UserCredential> signIn({
     required String email,
     required String password,
-  }) {
-    return _auth.signInWithEmailAndPassword(
+  }) async {
+    final credential = await _auth.signInWithEmailAndPassword(
       email: email.trim(),
       password: password,
     );
+    await _syncEmailToProfile(credential.user);
+    return credential;
   }
 
   Future<UserCredential> createAccount({
@@ -45,6 +47,7 @@ class AuthService {
     final now = FieldValue.serverTimestamp();
     await _users.doc(uid).set({
       'fullName': fullName.trim(),
+      'email': credential.user!.email ?? email.trim(),
       'updatedAt': now,
       'accountStatus': 'active',
       'voicePersona': 'sara',
@@ -109,10 +112,25 @@ Future<void> sendSignUpLink({
       );
     }
 
-    return _auth.signInWithEmailLink(
+    final credential = await _auth.signInWithEmailLink(
       email: email.trim(),
       emailLink: emailLink,
     );
+    await _syncEmailToProfile(credential.user);
+    return credential;
+  }
+
+  Future<void> _syncEmailToProfile(User? user) async {
+    final email = user?.email;
+    if (user == null || email == null || email.isEmpty) return;
+
+    final profile = await _users.doc(user.uid).get();
+    if (!profile.exists || profile.data()?['email'] == email) return;
+
+    await profile.reference.update({
+      'email': email,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
   }
 
   Future<void> createUserProfileIfMissing({
@@ -123,10 +141,14 @@ Future<void> sendSignUpLink({
     final snapshot = await profile.get();
 
     // لا نستبدل إعدادات المستخدم إذا كان ملفه موجودًا.
-    if (snapshot.exists) return;
+    if (snapshot.exists) {
+      await _syncEmailToProfile(user);
+      return;
+    }
 
     await profile.set({
       'fullName': fullName.trim(),
+      'email': user.email ?? '',
       'updatedAt': FieldValue.serverTimestamp(),
       'accountStatus': 'active',
       'voicePersona': 'sara',
@@ -197,6 +219,7 @@ Future<void> sendSignUpLink({
       ),
     );
 
+    await _deleteOwnedFirestoreData(user);
     await _users.doc(user.uid).delete();
     await user.delete();
   }
@@ -230,6 +253,7 @@ Future<void> sendSignUpLink({
 
     await profile.set({
       ...nameUpdate,
+      'email': user.email ?? '',
       'accountStatus': 'active',
       'voicePersona': 'sara',
       'speechRate': 1.0,
@@ -256,10 +280,44 @@ Future<void> sendSignUpLink({
     final user = _requireCurrentUser();
     await _reauthenticate(user, password);
 
-    // This project currently stores the user's account data in this one
-    // document. Add any future user-owned collections here before release.
+    await _deleteOwnedFirestoreData(user);
     await _users.doc(user.uid).delete();
     await user.delete();
+  }
+
+  Future<void> _deleteOwnedFirestoreData(User user) async {
+    final userRef = _users.doc(user.uid);
+    for (final collectionName in ['favoriteLocations', 'navigationSessions']) {
+      final collection = _firestore.collection(collectionName);
+      while (true) {
+        final snapshot = await collection
+            .where('userRef', isEqualTo: userRef)
+            .limit(400)
+            .get();
+        if (snapshot.docs.isEmpty) break;
+
+        final batch = _firestore.batch();
+        for (final document in snapshot.docs) {
+          batch.delete(document.reference);
+        }
+        await batch.commit();
+      }
+    }
+
+    // Clean up legacy nested records created before the collection redesign.
+    for (final collectionName in ['favoriteLocations', 'navigationSessions']) {
+      final collection = userRef.collection(collectionName);
+      while (true) {
+        final snapshot = await collection.limit(400).get();
+        if (snapshot.docs.isEmpty) break;
+
+        final batch = _firestore.batch();
+        for (final document in snapshot.docs) {
+          batch.delete(document.reference);
+        }
+        await batch.commit();
+      }
+    }
   }
 
   User _requireCurrentUser() {

@@ -58,6 +58,7 @@ class _HomePageState extends State<HomePage> {
   LatLng? _selectedStartLocation;
   LatLng? _selectedDestination;
   LatLng? _routeStartLocation;
+  String? _selectedDestinationAddress;
 
   List<LatLng> _routePoints = [];
   final Set<Marker> _markers = {};
@@ -71,6 +72,13 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    if (FirebaseAuth.instance.currentUser != null) {
+      unawaited(
+        _favoriteService.migrateLegacyData().catchError((Object error) {
+          debugPrint('Failed to migrate legacy Firestore records: $error');
+        }),
+      );
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestPermissionsAndLoadLocation();
     });
@@ -309,6 +317,7 @@ class _HomePageState extends State<HomePage> {
 
     final target = LatLng(latitude.toDouble(), longitude.toDouble());
     final name = _placeName(prediction);
+    final formattedAddress = prediction['formatted']?.toString().trim();
     FocusScope.of(context).unfocus();
 
     setState(() {
@@ -334,6 +343,10 @@ class _HomePageState extends State<HomePage> {
         );
       } else {
         _selectedDestination = target;
+        _selectedDestinationAddress =
+            formattedAddress != null && formattedAddress.isNotEmpty
+                ? formattedAddress
+                : name;
         _destinationController.text = name;
         _markers.removeWhere(
           (marker) => marker.markerId.value == 'destination_marker',
@@ -619,13 +632,11 @@ class _HomePageState extends State<HomePage> {
     }
 
     try {
-      final session = FirebaseFirestore.instance
-          .collection('User')
-          .doc(user.uid)
-          .collection('navigationSessions')
-          .doc();
+      final firestore = FirebaseFirestore.instance;
+      final session = firestore.collection('navigationSessions').doc();
 
       await session.set({
+        'userRef': firestore.collection('User').doc(user.uid),
         'startLocation': GeoPoint(
           _routeStartLocation!.latitude,
           _routeStartLocation!.longitude,
@@ -714,8 +725,6 @@ class _HomePageState extends State<HomePage> {
       }
 
       await FirebaseFirestore.instance
-          .collection('User')
-          .doc(uid)
           .collection('navigationSessions')
           .doc(sessionId)
           .update({
@@ -888,7 +897,8 @@ Future<void> _saveFavoriteLocation() async {
 
   try {
     await _favoriteService.addFavorite(
-      name: _destinationController.text.trim(),
+      placeName: _destinationController.text.trim(),
+      address: _selectedDestinationAddress ?? _destinationController.text.trim(),
       latitude: _selectedDestination!.latitude,
       longitude: _selectedDestination!.longitude,
     );
@@ -1306,6 +1316,7 @@ Future<void> _saveFavoriteLocation() async {
 
   setState(() {
     _destinationController.text = result['name'];
+    _selectedDestinationAddress = result['address']?.toString();
 
     _selectedDestination = destination;
 
@@ -1352,7 +1363,8 @@ Future<void> _saveFavoriteLocation() async {
 
   try {
     await _favoriteService.addFavorite(
-      name: _destinationController.text.trim(),
+      placeName: _destinationController.text.trim(),
+      address: _selectedDestinationAddress ?? _destinationController.text.trim(),
       latitude: _selectedDestination!.latitude,
       longitude: _selectedDestination!.longitude,
     );

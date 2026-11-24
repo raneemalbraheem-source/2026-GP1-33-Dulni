@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "favoriteLocations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userRef", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

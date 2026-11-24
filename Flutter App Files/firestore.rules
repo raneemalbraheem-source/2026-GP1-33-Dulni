@@ -6,15 +6,21 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
+    function isOwnerReference(userRef) {
+      return request.auth != null
+        && userRef == /databases/$(database)/documents/User/$(request.auth.uid);
+    }
+
     function validProfile(data) {
       let fields = [
-        'fullName', 'updatedAt', 'accountStatus', 'voicePersona',
+        'fullName', 'email', 'updatedAt', 'accountStatus', 'voicePersona',
         'speechRate', 'instructionFrequency', 'alertRepetitionCount',
         'vibrationEnabled'
       ];
       return data.keys().hasAll(fields)
         && data.keys().hasOnly(fields)
         && data.fullName is string
+        && data.email is string
         && data.updatedAt is timestamp
         && data.accountStatus is string
         && data.voicePersona is string
@@ -31,20 +37,27 @@ service cloud.firestore {
     }
 
     function validFavorite(data) {
-      return data.keys().hasAll(['placeName', 'address'])
-        && data.keys().hasOnly(['placeName', 'address'])
+      return data.keys().hasAll([
+          'userRef', 'placeName', 'address', 'location', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'userRef', 'placeName', 'address', 'location', 'createdAt'
+        ])
         && data.placeName is string
-        && data.address is string;
+        && data.address is string
+        && data.location is latlng
+        && data.createdAt is timestamp;
     }
 
     function validSession(data) {
       let endTime = data.get('endedAt', null);
       return data.keys().hasAll([
-          'startLocation', 'destination', 'startedAt', 'status', 'distance'
+          'userRef', 'startLocation', 'destination', 'startedAt', 'status',
+          'distance'
         ])
         && data.keys().hasOnly([
-          'startLocation', 'destination', 'startedAt', 'endedAt', 'status',
-          'distance'
+          'userRef', 'startLocation', 'destination', 'startedAt', 'endedAt',
+          'status', 'distance'
         ])
         && data.startLocation is latlng
         && data.destination is latlng
@@ -83,22 +96,47 @@ service cloud.firestore {
           'fullName', 'updatedAt'
         ]);
 
+      allow update: if isOwner(userId)
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'email', 'updatedAt'
+        ]);
+
+      // Legacy nested documents may remain until existing data is migrated.
+      // Clients can only read or remove their own legacy records.
       match /favoriteLocations/{favoriteId} {
         allow read, delete: if isOwner(userId);
-        allow create, update: if isOwner(userId)
-          && validFavorite(request.resource.data);
       }
 
       match /navigationSessions/{sessionId} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId)
-          && validSession(request.resource.data);
-        allow update: if isOwner(userId)
-          && validSession(request.resource.data)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'destination', 'endedAt', 'status', 'distance'
-          ]);
+        allow read, delete: if isOwner(userId);
       }
+    }
+
+    match /favoriteLocations/{favoriteId} {
+      allow read, delete: if isOwnerReference(resource.data.userRef);
+      allow create: if isOwnerReference(request.resource.data.userRef)
+        && validFavorite(request.resource.data);
+      allow update: if isOwnerReference(resource.data.userRef)
+        && isOwnerReference(request.resource.data.userRef)
+        && validFavorite(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'placeName', 'address', 'location', 'createdAt'
+        ]);
+    }
+
+    match /navigationSessions/{sessionId} {
+      allow read: if isOwnerReference(resource.data.userRef);
+      allow delete: if isOwnerReference(resource.data.userRef);
+      allow create: if isOwnerReference(request.resource.data.userRef)
+        && validSession(request.resource.data);
+      allow update: if isOwnerReference(resource.data.userRef)
+        && isOwnerReference(request.resource.data.userRef)
+        && validSession(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'destination', 'endedAt', 'status', 'distance'
+        ]);
     }
   }
 }

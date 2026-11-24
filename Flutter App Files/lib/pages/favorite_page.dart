@@ -67,9 +67,9 @@ class FavoritePage extends StatelessWidget {
               final favorite = favorites[index];
               final data = favorite.data();
 
-              final name = data['name'] ?? 'موقع غير معروف';
-              final latitude = data['latitude'];
-              final longitude = data['longitude'];
+              final name = data['placeName'] ?? 'موقع غير معروف';
+              final address = data['address'] ?? '';
+              final location = data['location'];
 
               return Card(
                 margin: const EdgeInsets.only(bottom: 10),
@@ -88,17 +88,20 @@ class FavoritePage extends StatelessWidget {
                     ),
                   ),
 
-                  subtitle: Text(
-                    'Lat: $latitude\nLng: $longitude',
-                  ),
+                  subtitle: Text(address),
 
                   onTap: () {
                     Navigator.pop(
                       context,
                       {
                         'name': name,
-                        'latitude': latitude,
-                        'longitude': longitude,
+                        'address': address,
+                        'latitude': location is GeoPoint
+                            ? location.latitude
+                            : data['latitude'],
+                        'longitude': location is GeoPoint
+                            ? location.longitude
+                            : data['longitude'],
                       },
                     );
                   },
