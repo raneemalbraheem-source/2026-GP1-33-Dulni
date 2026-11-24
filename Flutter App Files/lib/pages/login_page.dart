@@ -49,6 +49,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _awaitingVoiceChoice = false;
   bool _emailConfirmed = false;
   bool _screenReaderActive = false;
+  bool _isLeavingPage = false;
 
   Timer? _silenceTimer;
 
@@ -77,14 +78,28 @@ class _LoginPageState extends State<LoginPage> {
     _voiceEnabled = false;
     _silenceTimer?.cancel();
 
-    unawaited(_speechService.cancelListening());
-    unawaited(_voiceService.stop());
 
     _emailFocusNode.dispose();
     _emailController.dispose();
 
     super.dispose();
   }
+
+  Future<void> _handleBackNavigation() async {
+  if (_isLeavingPage) return;
+
+  _isLeavingPage = true;
+  _voiceEnabled = false;
+  _voiceRestartPending = false;
+  _silenceTimer?.cancel();
+
+  await _speechService.cancelListening();
+  await _voiceService.stop();
+
+  if (!mounted) return;
+
+  Navigator.of(context).pop();
+}
 
   InputDecoration _fieldDecoration({
     required String labelText,
@@ -140,6 +155,7 @@ class _LoginPageState extends State<LoginPage> {
 
     try {
       await _voiceService.initialize();
+      if (!mounted || _isLeavingPage) return;
 
       final ready = await _speechService.initialize(
         onStatus: _handleSpeechStatus,
@@ -148,7 +164,7 @@ class _LoginPageState extends State<LoginPage> {
         },
       );
 
-      if (!mounted || !ready) return;
+      if (!mounted || _isLeavingPage || !ready) return;
 
       setState(() {
         _voiceEnabled = true;
@@ -164,7 +180,7 @@ class _LoginPageState extends State<LoginPage> {
     );
     } catch (e) {
       debugPrint('Login voice initialization error: $e');
-      if (!mounted) return;
+      if (!mounted || _isLeavingPage) return;
 
       setState(() {
         _voiceEnabled = false;
@@ -505,7 +521,7 @@ Future<void> _handleVoiceCommand(String text) async {
       break;
 
     case VoiceNavigationAction.signup:
-      _goToSignUp();
+      await _goToSignUp();
       break;
 
     case VoiceNavigationAction.login:
@@ -893,23 +909,38 @@ String _normalizeEmailVoiceInput(String text) {
     );
   }
 
-  void _goToSignUp() {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute<void>(
-        builder: (_) => const SignupPage(),
-      ),
-    );
-  }
+  Future<void> _goToSignUp() async {
+  _voiceEnabled = false;
+  _silenceTimer?.cancel();
+  _voiceRestartPending = false;
+
+  await _speechService.cancelListening();
+  await _voiceService.stop();
+
+  if (!mounted) return;
+
+  Navigator.pushReplacement(
+    context,
+    MaterialPageRoute<void>(
+      builder: (_) => const SignupPage(),
+    ),
+  );
+}
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('تسجيل الدخول'),
-      ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _handleBackNavigation();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('تسجيل الدخول'),
+        ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -1028,10 +1059,11 @@ String _normalizeEmailVoiceInput(String text) {
                         TextButton(
                           onPressed: _loading ? null : _goToSignUp,
                           child: const Text('إنشاء حساب'),
-                        ),
-                      ],
-                    ),
-                  ],
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

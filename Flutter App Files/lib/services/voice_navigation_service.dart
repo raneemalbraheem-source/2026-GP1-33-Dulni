@@ -128,9 +128,9 @@ class VoiceNavigationService {
       _mode = _VoiceNavigationMode.choice;
 
       await _speak(
-        'هل ترغب في الانتقال إلى صفحة أخرى، '
-        'أم تريد إكمال استخدام الصفحة الحالية؟',
-      );
+      'هل ترغب في الانتقال إلى صفحة أخرى؟ '
+      'قل نعم للانتقال إلى صفحة أخرى، أو لا لإكمال استخدام الصفحة الحالية.',
+    );
 
       if (_active) {
         final listening = await _listen();
@@ -186,9 +186,11 @@ class VoiceNavigationService {
         if (!_active || _busy || _processing) return;
 
         final reminder = _mode == _VoiceNavigationMode.choice
-            ? 'هل ترغب في الانتقال إلى صفحة أخرى، '
-                'أم تريد إكمال استخدام الصفحة الحالية؟'
-            : 'يمكنك قول أحد الأوامر التالية: $_availablePages';
+            ? 'هل ترغب في الانتقال إلى صفحه أخرى؟ '
+            'قل نعم للانتقال، أو لا لإكمال استخدام الصفحة الحالية.'
+            : 'يمكنك قول اسم الصفحة التي ترغب في الانتقال إليها. '
+              'الرئيسية، الأماكن المفضلة، الملف الشخصي، '
+              '${_isSignedIn ? 'أو تسجيل الخروج.' : 'أو تسجيل الدخول أو إنشاء حساب.'}';
 
         await _speak(reminder);
 
@@ -256,36 +258,60 @@ class VoiceNavigationService {
   }
 
   Future<void> _handleNavigationChoice(String text) async {
-    final command = _normalizeArabic(text);
+  final command = _normalizeArabic(text);
 
-    if (command.contains('انتقال') ||
-        command.contains('صفحه اخرى') ||
-        command.contains('صفحة اخرى') ||
-        command.contains('التنقل')) {
-      _mode = _VoiceNavigationMode.commands;
+  if (command == 'نعم' ||
+      command == 'اي' ||
+      command == 'ايوه' ||
+      command == 'صحيح') {
+    _mode = _VoiceNavigationMode.commands;
 
-      await _speak(
-        'التنقل الصوتي يتيح لك الانتقال بين صفحات تطبيق دُلّني. '
-        'يمكنك استخدام الأوامر التالية: $_availablePages. '
-        'ما الصفحة أو الإجراء الذي ترغب فيه؟',
-      );
+    final availableCommands = <String>[];
 
-      return;
-    }
+if (_currentPage != VoiceNavigationPage.home) {
+  availableCommands.add('إذا أردت الانتقال إلى الصفحة الرئيسية، قل: الرئيسية.');
+}
 
-    if (command.contains('اكمال') ||
-        command.contains('اكمل') ||
-        command.contains('الصفحه الحاليه') ||
-        command.contains('الصفحة الحالية')) {
-      await _finishAndContinue();
-      return;
-    }
+if (_currentPage != VoiceNavigationPage.favorites) {
+  availableCommands.add('إذا أردت الوصول إلى الأماكن المفضلة، قل: الأماكن المفضلة.');
+}
 
-    await _speak(
-      'لم أفهم اختيارك. '
-      'قل الانتقال إلى صفحة أخرى، أو إكمال استخدام الصفحة الحالية.',
-    );
+if (_currentPage != VoiceNavigationPage.profile) {
+  availableCommands.add('إذا أردت فتح الملف الشخصي، قل: الملف الشخصي.');
+}
+
+if (!_isSignedIn) {
+  if (_currentPage != VoiceNavigationPage.login) {
+    availableCommands.add('إذا أردت تسجيل الدخول، قل: تسجيل الدخول.');
   }
+
+  if (_currentPage != VoiceNavigationPage.signup) {
+    availableCommands.add('إذا أردت إنشاء حساب، قل: إنشاء حساب.');
+  }
+} else {
+  availableCommands.add('إذا أردت تسجيل الخروج، قل: تسجيل الخروج.');
+}
+
+await _speak(
+  'يمكنك الآن الانتقال بين صفحات تطبيق دُلّني. '
+  '${availableCommands.join(' ')}',
+);
+
+    return;
+  }
+
+  if (command == 'لا' ||
+      command == 'لأ' ||
+      command == 'الغاء') {
+    await _finishAndContinue();
+    return;
+  }
+
+  await _speak(
+    'لم أفهم اختيارك. '
+    'قل نعم للانتقال إلى صفحة أخرى، أو لا لإكمال استخدام الصفحة الحالية.',
+  );
+}
 
   Future<void> _handleNavigationCommand(String text) async {
     final command = _normalizeArabic(text);

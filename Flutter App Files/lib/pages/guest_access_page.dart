@@ -6,6 +6,7 @@ import 'package:flutter/semantics.dart';
 import '../services/speech_recognition_service.dart';
 import '../services/voice_feedback_service.dart';
 import '../services/permission_service.dart';
+import '../services/voice_navigation_service.dart';
 import '../widgets/app_bottom_navigation.dart';
 import 'login_page.dart';
 import 'signup_page.dart';
@@ -35,6 +36,7 @@ class GuestAccessPage extends StatefulWidget {
 class _GuestAccessPageState extends State<GuestAccessPage> {
   final _speechService = SpeechRecognitionService.instance;
   final _voiceService = VoiceFeedbackService.instance;
+  final _voiceNavigationService = VoiceNavigationService.instance;
 
   _GuestVoiceMode _voiceMode = _GuestVoiceMode.manual;
 
@@ -157,6 +159,95 @@ class _GuestAccessPageState extends State<GuestAccessPage> {
       });
     }
   }
+
+Future<void> _startGeneralVoiceNavigation() async {
+  if (!mounted || !_voiceEnabled) return;
+
+  _silenceTimer?.cancel();
+  _voiceRestartPending = false;
+  _voiceEnabled = false;
+
+  await _speechService.stopListening();
+
+  if (!mounted) return;
+
+  final started = await _voiceNavigationService.start(
+    context: context,
+    currentPage: _isFavorites
+        ? VoiceNavigationPage.favorites
+        : VoiceNavigationPage.profile,
+    isSignedIn: false,
+    onNavigate: _handleVoiceNavigation,
+    onComplete: _resumeGuestVoice,
+  );
+
+  if (!started && mounted) {
+    await _resumeGuestVoice();
+  }
+}
+
+Future<void> _resumeGuestVoice() async {
+  if (!mounted) return;
+
+  await _initializeVoice(
+    askVoicePreference: false,
+  );
+}
+
+Future<void> _handleVoiceNavigation(
+  VoiceNavigationAction action,
+) async {
+  if (!mounted) return;
+
+  final navigator = Navigator.of(context);
+
+  switch (action) {
+    case VoiceNavigationAction.home:
+      navigator.popUntil((route) => route.isFirst);
+      break;
+
+    case VoiceNavigationAction.favorites:
+      navigator.popUntil((route) => route.isFirst);
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const GuestAccessPage(
+            feature: GuestFeature.favorites,
+          ),
+        ),
+      );
+      break;
+
+    case VoiceNavigationAction.profile:
+      navigator.popUntil((route) => route.isFirst);
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const GuestAccessPage(
+            feature: GuestFeature.profile,
+          ),
+        ),
+      );
+      break;
+
+    case VoiceNavigationAction.login:
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const LoginPage(),
+        ),
+      );
+      break;
+
+    case VoiceNavigationAction.signup:
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const SignupPage(),
+        ),
+      );
+      break;
+
+    case VoiceNavigationAction.logout:
+      break;
+  }
+}
 
   Future<void> _listenForVoice() async {
     if (!mounted ||
@@ -325,10 +416,7 @@ class _GuestAccessPageState extends State<GuestAccessPage> {
       if (_isYesCommand(command)) {
         _awaitingVoiceChoice = false;
 
-        await _speakAndResume(
-          'حسنًا، يمكنك الآن اختيار تسجيل الدخول أو إنشاء حساب. '
-          'قل تسجيل الدخول أو إنشاء حساب.',
-        );
+        await _startGeneralVoiceNavigation();
         return;
       }
 
@@ -567,21 +655,15 @@ class _GuestAccessPageState extends State<GuestAccessPage> {
                     ),
                     const SizedBox(height: 28),
                     FilledButton(
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) => const LoginPage(),
+                      onPressed: () => _navigateToAuthPage(
+                          _GuestAuthChoice.login,
                         ),
-                      ),
                       child: const Text('تسجيل الدخول'),
                     ),
                     const SizedBox(height: 12),
                     OutlinedButton(
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) => const SignupPage(),
-                        ),
+                      onPressed: () => _navigateToAuthPage(
+                        _GuestAuthChoice.signup,
                       ),
                       child: const Text('إنشاء حساب'),
                     ),

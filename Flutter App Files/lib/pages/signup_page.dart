@@ -57,6 +57,7 @@ class _SignupPageState extends State<SignupPage> {
   bool _voiceRestartPending = false;
   bool _awaitingVoiceChoice = false;
   bool _screenReaderActive = false;
+  bool _isLeavingPage = false;
 
   bool get _nameIsValid {
     final name = _nameController.text.trim();
@@ -150,9 +151,6 @@ void _startSilenceTimer() {
   void dispose() {
     _voiceEnabled = false;
     _cancelSilenceTimer();
-
-    unawaited(_speechService.cancelListening());
-    unawaited(_voiceService.stop());
 
     _nameFocusNode.dispose();
     _emailFocusNode.dispose();
@@ -301,8 +299,14 @@ void _startSilenceTimer() {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('إنشاء حساب')),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _handleBackNavigation();
+      },
+      child: Scaffold(
+        appBar: AppBar(title: const Text('إنشاء حساب')),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -455,18 +459,30 @@ void _startSilenceTimer() {
                           const Text('هل لديك حساب بالفعل؟'),
                           TextButton(
                             onPressed: _loading
-                                ? null
-                                : () => Navigator.pushReplacement(
-                                    context,
-                                    MaterialPageRoute<void>(
-                                      builder: (_) => const LoginPage(),
-                                    ),
-                                  ),
+                          ? null
+                          : () async {
+                              _voiceEnabled = false;
+                              _silenceTimer?.cancel();
+                              _voiceRestartPending = false;
+
+                              await _speechService.cancelListening();
+                              await _voiceService.stop();
+
+                              if (!mounted) return;
+
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute<void>(
+                                  builder: (_) => const LoginPage(),
+                                ),
+                              );
+                            },
                             child: const Text('تسجيل الدخول'),
-                          ),
-                        ],
-                      ),
-                    ],
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -506,6 +522,7 @@ void _startSilenceTimer() {
 
     try {
       await _voiceService.initialize();
+      if (!mounted || _isLeavingPage) return;
 
       final ready = await _speechService.initialize(
         onStatus: _handleSpeechStatus,
@@ -514,7 +531,7 @@ void _startSilenceTimer() {
         },
       );
 
-      if (!mounted || !ready) return;
+      if (!mounted || _isLeavingPage || !ready) return;
 
       setState(() {
         _voiceEnabled = true;
@@ -530,7 +547,7 @@ void _startSilenceTimer() {
       );
     } catch (e) {
       debugPrint('Signup voice initialization error: $e');
-      if (mounted) {
+      if (mounted && !_isLeavingPage) {
         setState(() {
           _voiceEnabled = false;
           _voiceMode = _VoiceMode.manual;
@@ -1329,6 +1346,22 @@ return result;
     await _speechService.cancelListening();
     await _voiceService.stop();
   }
+
+  Future<void> _handleBackNavigation() async {
+  if (_isLeavingPage) return;
+
+  _isLeavingPage = true;
+  _voiceEnabled = false;
+  _voiceRestartPending = false;
+  _cancelSilenceTimer();
+
+  await _speechService.cancelListening();
+  await _voiceService.stop();
+
+  if (!mounted) return;
+
+  Navigator.of(context).pop();
+}
 
   
 }
