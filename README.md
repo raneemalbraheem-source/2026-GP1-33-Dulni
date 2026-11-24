@@ -29,6 +29,8 @@ The goal of Dulni is to improve outdoor mobility and independence for visually i
 The repository is organized to separate the application source code from project documentation.
 
 - `Flutter App Files/` — Flutter project files containing Application source code (in 'lib' folder).
+- `dulni-voice-backend/` — Voice backend services.
+- `dulni-firebase-hosting/` — Firebase Hosting files (for email link log-in).
 - `AUTHORS` — Project team members.
 - `README.md` — Project overview, technologies, and setup instructions.
 
