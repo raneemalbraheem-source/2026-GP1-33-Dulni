@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Dulni is an AI-powered assistive navigation application designed to help visually impaired individuals navigate outdoor environments more safely and independently. The application aims to combine GPS-based navigation, Arabic voice guidance, and real-time obstacle awareness in an accessible mobile experience.
+Dulni is an AI-powered assistive navigation application designed to help visually impaired individuals navigate outdoor environments more safely and independently. The application combines map-based pedestrian directions, Arabic voice guidance, and real-time obstacle awareness in an accessible mobile experience.
 
 The goal of Dulni is to improve outdoor mobility and independence for visually impaired users through an accessible, voice-first navigation experience.
 
@@ -14,7 +14,11 @@ The goal of Dulni is to improve outdoor mobility and independence for visually i
 - **Backend Services:** Firebase
 - **Database:** Cloud Firestore
 - **Authentication:** Firebase Authentication
-- **Map and Location Services:** Google Maps Platform
+- **Map Service:** Google Maps Platform
+- **Locations Services:** Geoapify Geocoding API
+- **Pedestrian Route Planning:** OpenRouteService (ORS)
+- **Speech Recognition (STT):** Azure Speech Services
+- **Speech Synthesis (TTS):** HUMAIN Voice
 - **Version Control:** GitHub
 - **AI & Computer Vision Model:** YOLO11 Nano (Exported to TFLite)
 - **Model Training Environment:** Google Colab (T4 GPU)
