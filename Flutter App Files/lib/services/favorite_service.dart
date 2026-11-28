@@ -112,21 +112,37 @@ class FavoriteService {
   }
 
   Future<void> addFavorite({
-    required String placeName,
-    required String address,
-    required double latitude,
-    required double longitude,
-  }) async {
-    final user = _requireUser();
-    await _favoritesCollection.add({
-      'userRef': _userReference(user),
-      'placeName': placeName,
-      'address': address,
-      // Coordinates are retained so a saved favorite can be opened on the map.
-      'location': GeoPoint(latitude, longitude),
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+  required String placeName,
+  required String address,
+  required double latitude,
+  required double longitude,
+}) async {
+  final user = _requireUser();
+
+  final existingFavorites = await _favoritesCollection
+      .where('userRef', isEqualTo: _userReference(user))
+      .get();
+
+  for (final document in existingFavorites.docs) {
+    final data = document.data();
+    final location = data['location'];
+
+    if (location is GeoPoint &&
+        location.latitude == latitude &&
+        location.longitude == longitude) {
+      await document.reference.delete();
+      break;
+    }
   }
+
+  await _favoritesCollection.add({
+    'userRef': _userReference(user),
+    'placeName': placeName,
+    'address': address,
+    'location': GeoPoint(latitude, longitude),
+    'createdAt': FieldValue.serverTimestamp(),
+  });
+}
 
   Stream<QuerySnapshot<Map<String, dynamic>>> getFavorites() {
     final user = _requireUser();
